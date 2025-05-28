@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--data-checksums --encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./database/migrations:/app/database/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"] # Verify if is the correct database
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  test:
+    image: golang:1.24.3-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "
+        apk add --no-cache git postgresql-client &&
+        go mod download &&
+        until pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER} -d postgres; do
+          echo 'Waiting for PostgreSQL to be ready...'
+          sleep 2
+        done &&
+        psql -h ${DB_HOST} -U ${DB_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'\" | grep -q 1 || \
+          psql -h ${DB_HOST} -U ${DB_USER} -d postgres -c \"CREATE DATABASE ${DB_NAME};\" &&
+        go test ./tests -v
+      "
+
+volumes:
+  postgres_test_data:

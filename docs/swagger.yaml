@@ -1,0 +1,364 @@
+basePath: /
+definitions:
+  dto.CreateTaskInput:
+    properties:
+      assignee_id:
+        description: UUID of the user assigned to the task
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      description:
+        example: Write detailed documentation for the project including setup, usage,
+          and API endpoints.
+        type: string
+      due_date:
+        description: ISO string
+        example: "2023-12-31T23:59:59Z"
+        type: string
+      priority:
+        description: 'default: medium'
+        enum:
+        - low
+        - medium
+        - high
+        example: high
+        type: string
+      status:
+        description: 'default: pending'
+        enum:
+        - pending
+        - in_progress
+        - complete
+        example: in_progress
+        type: string
+      title:
+        example: Complete project documentation
+        type: string
+    required:
+    - description
+    - due_date
+    - title
+    type: object
+  dto.ErrorResponse:
+    properties:
+      code:
+        example: 400
+        type: integer
+      message:
+        example: Invalid input or missing required fields
+        type: string
+    type: object
+  dto.LoginRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: SecurePassword123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  dto.RegisterRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      first_name:
+        example: John
+        type: string
+      last_name:
+        example: Doe
+        type: string
+      password:
+        example: SecurePassword123
+        minLength: 6
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    type: object
+  dto.TaskResponse:
+    properties:
+      description:
+        example: Write detailed documentation for the project including setup, usage,
+          and API endpoints.
+        type: string
+      due_date:
+        example: "2025-06-01T15:04:05Z"
+        type: string
+      id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      priority:
+        example: high
+        type: string
+      status:
+        example: pending
+        type: string
+      title:
+        example: Complete project documentation
+        type: string
+    type: object
+  dto.UpdateTaskDTO:
+    properties:
+      assignee_id:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      description:
+        example: Write detailed documentation for the project including setup, usage,
+          and API endpoints.
+        type: string
+      due_date:
+        description: ISO string
+        example: "2023-12-31T23:59:59Z"
+        type: string
+      priority:
+        enum:
+        - low
+        - medium
+        - high
+        example: high
+        type: string
+      status:
+        enum:
+        - pending
+        - in_progress
+        - complete
+        example: in_progress
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: kfeuerschvenger@gmail.com
+    name: Kevin Feuerschvenger
+  description: RESTful API for collaborative task management with JWT authentication.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Task Manager API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns a JWT token.
+      parameters:
+      - description: Login details
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: User Login
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account with the provided registration details.
+      parameters:
+      - description: Registration details
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/dto.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: New User Registration
+      tags:
+      - auth
+  /ping:
+    get:
+      consumes:
+      - text/plain
+      description: Checks the health of the API service.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Pong
+          schema:
+            type: string
+      summary: Health Check
+      tags:
+      - healthcheck
+  /tasks:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all tasks for the authenticated user, with optional filtering
+        by status and priority.
+      parameters:
+      - description: Filter by task status (pending, in_progress, complete)
+        in: query
+        name: status
+        type: string
+      - description: Filter by task priority (low, medium, high)
+        in: query
+        name: priority
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.TaskResponse'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get all tasks
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      description: Creates a new task with the provided details.
+      parameters:
+      - description: Task details
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateTaskInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.TaskResponse'
+        "400":
+          description: Invalid input or missing required fields
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a new task
+      tags:
+      - tasks
+  /tasks/{id}:
+    delete:
+      description: Deletes a task by its ID.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Task deleted successfully
+          schema:
+            type: string
+        "403":
+          description: Unauthorized to delete this task
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Task not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a task
+      tags:
+      - tasks
+    put:
+      consumes:
+      - application/json
+      description: Updates the details of an existing task.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated task details
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateTaskDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.TaskResponse'
+        "400":
+          description: Invalid input or missing required fields
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "403":
+          description: Unauthorized to update this task
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Task not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update an existing task
+      tags:
+      - tasks
+schemes:
+- http
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
