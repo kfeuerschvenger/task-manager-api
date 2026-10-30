@@ -113,6 +113,7 @@ func TestBuildDSNQuotesSpecialCharacters(t *testing.T) {
 	assert.Equal(t, `us er'x`, cfg.User)
 	assert.Equal(t, trickyPassword, cfg.Password)
 	assert.Equal(t, "my db", cfg.Database)
+	assert.Equal(t, "UTC", cfg.RuntimeParams["TimeZone"])
 }
 
 func TestBuildDSNRejectsInvalidSSLMode(t *testing.T) {

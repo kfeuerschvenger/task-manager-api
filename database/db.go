@@ -63,16 +63,17 @@ func buildDSN(host, port, user, password, dbname string) (string, error) {
 		{"dbname", dbname},
 		{"port", port},
 		{"sslmode", SSLMode()},
-		{"TimeZone", "UTC"},
 	}
 	if cert := SSLRootCert(); cert != "" {
 		pairs = append(pairs, [2]string{"sslrootcert", cert})
 	}
 
-	parts := make([]string, 0, len(pairs))
+	parts := make([]string, 0, len(pairs)+1)
 	for _, p := range pairs {
 		parts = append(parts, p[0]+"="+quoteDSNValue(p[1]))
 	}
+	// TimeZone is a fixed literal; the pgx driver keeps quotes around runtime parameters, so it stays unquoted.
+	parts = append(parts, "TimeZone=UTC")
 	return strings.Join(parts, " "), nil
 }
 
