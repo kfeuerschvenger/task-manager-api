@@ -137,7 +137,25 @@ The test stack is self-contained: it needs no `.env` file and publishes no ports
 
 ## Environment Variables
 
-See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`. `DATABASE_URL` optionally overrides the migration connection string. Postgres is published on `127.0.0.1:5432` only.
+See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`; it must be one of `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`, otherwise the server refuses to start. `DB_SSLROOTCERT` optionally sets the path of the root certificate used by `verify-ca` and `verify-full`. `DATABASE_URL` optionally overrides the migration connection string. Postgres is published on `127.0.0.1:5432` only.
+
+### TLS to the database
+
+The image ships the system CA bundle (`ca-certificates`), so `verify-ca` and `verify-full` work against servers signed by a public CA with no extra setup. For a private CA, mount its root certificate into the container and point `DB_SSLROOTCERT` at it, for example with this `docker-compose.yml` override on the `api` service:
+
+```yaml
+    volumes:
+      - ./certs/root.crt:/certs/root.crt:ro
+```
+
+and in `.env`:
+
+```
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/certs/root.crt
+```
+
+The container healthcheck calls `GET /ping` on `APP_PORT` (default `8080`), and both compose services use `restart: unless-stopped`.
 
 ## Notes
 

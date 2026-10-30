@@ -13,7 +13,11 @@ RUN CGO_ENABLED=0 go build -o main ./cmd/main.go
 # Final stage
 FROM alpine:3.21
 
-RUN addgroup -S app && adduser -S -G app app
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S app \
+    && adduser -S -G app -h /home/app app \
+    && mkdir -p /home/app \
+    && chown app:app /home/app
 
 WORKDIR /app
 
@@ -27,5 +31,8 @@ ENV MIGRATIONS_PATH=file:///app/database/migrations
 USER app
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget -qO- "http://127.0.0.1:${APP_PORT:-8080}/ping" >/dev/null || exit 1
 
 CMD ["./main"]
