@@ -37,6 +37,27 @@ func TestWriteErrorMapsTypedErrors(t *testing.T) {
 	}
 }
 
+func TestCapitalize(t *testing.T) {
+	assert.Equal(t, "", capitalize(""))
+	assert.Equal(t, "Invalid email", capitalize("invalid email"))
+	assert.Equal(t, "Already", capitalize("Already"))
+	assert.Equal(t, "Éxito", capitalize("éxito"))
+	assert.Equal(t, "Ñandú", capitalize("ñandú"))
+	assert.Equal(t, "\xffabc", capitalize("\xffabc"))
+}
+
+func TestWriteDecodeError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeDecodeError(rec, fmt.Errorf("wrapped: %w", &http.MaxBytesError{Limit: 1}), "Invalid input")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Request body too large")
+
+	rec = httptest.NewRecorder()
+	writeDecodeError(rec, fmt.Errorf("unexpected EOF"), "Invalid input")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Invalid input")
+}
+
 func TestWriteErrorHidesInternalDetails(t *testing.T) {
 	internal := apperrors.WrapInternalServerError("error creating user", fmt.Errorf("pq: password authentication failed for user \"secret\""))
 

@@ -4,7 +4,8 @@ import (
 	stderrors "errors"
 	"log"
 	"net/http"
-	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	apperrors "github.com/kfeuerschvenger/task-manager-api/errors"
 	"github.com/kfeuerschvenger/task-manager-api/utils"
@@ -51,8 +52,9 @@ func writeDecodeError(w http.ResponseWriter, err error, badRequestMsg string) {
 }
 
 func capitalize(s string) string {
-	if s == "" {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	return string(unicode.ToUpper(r)) + s[size:]
 }
