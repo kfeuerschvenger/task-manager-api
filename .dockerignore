@@ -1,0 +1,12 @@
+.env*
+!.env.example
+.git
+.gitignore
+.vscode
+.atl
+.no-telemetry
+docs/private
+coverage.out
+*.test
+*.out
+*.log
