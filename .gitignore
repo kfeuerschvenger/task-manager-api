@@ -1,3 +1,6 @@
 .env
 .env.test
 .vscode/
+.no-telemetry
+.atl/
+docs/private/
