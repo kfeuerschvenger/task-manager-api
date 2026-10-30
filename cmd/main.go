@@ -62,7 +62,7 @@ func main() {
 		runMigrations(direction)
 		return
 	case "serve":
-		if err := utils.ValidateJWTSecret(); err != nil {
+		if err := validateStartupConfig(); err != nil {
 			log.Fatalf("Invalid configuration: %v", err)
 		}
 
@@ -83,6 +83,15 @@ func main() {
 		fmt.Println("  serve              Start the server (default)")
 		os.Exit(1)
 	}
+}
+
+// validateStartupConfig checks the configuration that must be valid before the server starts:
+// a strong JWT_SECRET and a recognized DB_SSLMODE.
+func validateStartupConfig() error {
+	if err := utils.ValidateJWTSecret(); err != nil {
+		return err
+	}
+	return database.ValidateSSLMode()
 }
 
 // runMigrations applies or reverts migrations based on the provided direction
