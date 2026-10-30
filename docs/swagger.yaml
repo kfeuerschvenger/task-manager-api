@@ -73,8 +73,8 @@ definitions:
         example: Doe
         type: string
       password:
+        description: At least 8 characters and at most 72 bytes (a bcrypt limit).
         example: SecurePassword123
-        maxLength: 72
         minLength: 8
         type: string
     required:

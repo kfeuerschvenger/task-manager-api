@@ -586,8 +586,8 @@ const docTemplate = `{
                     "example": "Doe"
                 },
                 "password": {
+                    "description": "At least 8 characters and at most 72 bytes (a bcrypt limit).",
                     "type": "string",
-                    "maxLength": 72,
                     "minLength": 8,
                     "example": "SecurePassword123"
                 }
