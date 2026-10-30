@@ -32,6 +32,7 @@ import (
 	"github.com/kfeuerschvenger/task-manager-api/database"
 	_ "github.com/kfeuerschvenger/task-manager-api/docs"
 	"github.com/kfeuerschvenger/task-manager-api/routes"
+	"github.com/kfeuerschvenger/task-manager-api/utils"
 )
 
 func main() {
@@ -57,6 +58,10 @@ func main() {
 		runMigrations(direction)
 		return
 	case "serve":
+		if err := utils.ValidateJWTSecret(); err != nil {
+			log.Fatalf("Invalid configuration: %v", err)
+		}
+
 		// Automatically apply migrations before starting
 		if err := database.MigrateUp(); err != nil {
 			log.Fatalf("Migration failed: %v", err)
