@@ -137,7 +137,7 @@ The test stack is self-contained: it needs no `.env` file and publishes no ports
 
 ## Environment Variables
 
-See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`; it must be one of `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`, otherwise the server refuses to start. `DB_SSLROOTCERT` optionally sets the path of the root certificate used by `verify-ca` and `verify-full`. `DATABASE_URL` optionally overrides the migration connection string. Postgres is published on `127.0.0.1:5432` only.
+See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`; it must be one of `disable`, `require`, `verify-ca`, or `verify-full`, otherwise the server refuses to start (`allow` and `prefer` are not supported because the migration driver rejects them). `DB_SSLROOTCERT` optionally sets the path of the root certificate used by `verify-ca` and `verify-full`. `DATABASE_URL` optionally overrides the connection string used by the migrations only: it is used verbatim, so `DB_SSLMODE` and `DB_SSLROOTCERT` do not apply to it (only an `sslmode` query parameter in it is checked against the same allowlist at startup), while the application itself keeps connecting with the `DB_*` variables. Postgres is published on `127.0.0.1:5432` only.
 
 ### TLS to the database
 
