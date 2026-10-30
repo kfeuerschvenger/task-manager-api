@@ -11,7 +11,7 @@ import (
 
 // ValidateRegisterInput checks the validity of the registration input.
 // It ensures the email format is correct, first and last names are at least 2 characters,
-// and the password is at least 6 characters long.
+// and the password is at least 8 characters long.
 // If any validation fails, it returns an appropriate error.
 func ValidateRegisterInput(req dto.RegisterRequest) error {
 	req.Email = utils.CleanEmail(req.Email)
@@ -28,8 +28,8 @@ func ValidateRegisterInput(req dto.RegisterRequest) error {
 		return errors.NewValidationError("last name must be at least 2 characters")
 	}
 
-	if len(req.Password) < 6 {
-		return errors.NewValidationError("password must be at least 6 characters")
+	if len(req.Password) < 8 {
+		return errors.NewValidationError("password must be at least 8 characters")
 	}
 
 	return nil

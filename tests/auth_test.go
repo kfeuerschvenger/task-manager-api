@@ -40,6 +40,16 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 			expectedCode: http.StatusBadRequest,
 		},
 		{
+			name: "Seven character password",
+			payload: map[string]string{
+				"first_name": "John",
+				"last_name":  "Doe",
+				"email":      "sevenchars@example.com",
+				"password":   "1234567",
+			},
+			expectedCode: http.StatusBadRequest,
+		},
+		{
 			name: "Invalid email",
 			payload: map[string]string{
 				"first_name": "John",
