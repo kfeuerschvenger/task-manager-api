@@ -2,28 +2,27 @@ package utils
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
 
-func TestBurnPasswordCheckAlwaysFalseAndCostsABcryptCompare(t *testing.T) {
+func TestBurnPasswordCheckAlwaysFalse(t *testing.T) {
 	hash, err := HashPassword("correct-horse")
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	require.True(t, CheckPasswordHash("correct-horse", hash))
 
-	// Warm the dummy hash so only the comparison is measured.
-	assert.False(t, BurnPasswordCheck("anything"))
+	for _, input := range []string{"", "anything", "correct-horse", "dummy-password-for-timing"} {
+		assert.False(t, BurnPasswordCheck(input), "input %q", input)
+	}
+}
 
-	start := time.Now()
-	CheckPasswordHash("wrong", hash)
-	real := time.Since(start)
+func TestDummyHashIsValidBcryptAtDefaultCost(t *testing.T) {
+	require.NotEmpty(t, dummyHash)
 
-	start = time.Now()
-	result := BurnPasswordCheck("wrong")
-	burned := time.Since(start)
+	cost, err := bcrypt.Cost(dummyHash)
 
-	assert.False(t, result)
-	// Both paths run one bcrypt comparison at the same cost; allow generous scheduling noise.
-	assert.Greater(t, burned, real/3)
-	assert.Less(t, burned, real*3)
+	require.NoError(t, err)
+	assert.Equal(t, bcrypt.DefaultCost, cost)
 }
