@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -86,12 +87,15 @@ func main() {
 }
 
 // validateStartupConfig checks the configuration that must be valid before the server starts:
-// a strong JWT_SECRET and a recognized DB_SSLMODE.
+// a strong JWT_SECRET, a recognized DB_SSLMODE, and a supported sslmode inside DATABASE_URL when it is set.
 func validateStartupConfig() error {
 	if err := utils.ValidateJWTSecret(); err != nil {
 		return err
 	}
-	return database.ValidateSSLMode()
+	if err := database.ValidateSSLMode(); err != nil {
+		return err
+	}
+	return database.ValidateDatabaseURL()
 }
 
 // runMigrations applies or reverts migrations based on the provided direction
@@ -132,7 +136,7 @@ func startServer() {
 	// Graceful shutdown
 	go func() {
 		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, os.Interrupt)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
 
 		log.Println("Shutting down server...")

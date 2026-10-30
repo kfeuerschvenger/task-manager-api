@@ -25,7 +25,7 @@ func TestSSLModeReadsEnvironment(t *testing.T) {
 }
 
 func TestValidateSSLMode(t *testing.T) {
-	for _, mode := range []string{"", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"} {
+	for _, mode := range []string{"", "disable", "require", "verify-ca", "verify-full"} {
 		t.Run("valid "+mode, func(t *testing.T) {
 			t.Setenv("DB_SSLMODE", mode)
 
@@ -33,7 +33,7 @@ func TestValidateSSLMode(t *testing.T) {
 		})
 	}
 
-	for _, mode := range []string{"bogus", "Require", "verify_full", "disable sslrootcert=/etc/passwd"} {
+	for _, mode := range []string{"allow", "prefer", "bogus", "Require", "verify_full", "disable sslrootcert=/etc/passwd"} {
 		t.Run("invalid "+mode, func(t *testing.T) {
 			t.Setenv("DB_SSLMODE", mode)
 
@@ -114,6 +114,60 @@ func TestBuildDSNQuotesSpecialCharacters(t *testing.T) {
 	assert.Equal(t, trickyPassword, cfg.Password)
 	assert.Equal(t, "my db", cfg.Database)
 	assert.Equal(t, "UTC", cfg.RuntimeParams["TimeZone"])
+}
+
+func TestValidateDatabaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr string
+	}{
+		{"unset", "", ""},
+		{"no sslmode", "postgres://u:p@db:5432/n", ""},
+		{"valid sslmode", "postgres://u:p@db:5432/n?sslmode=verify-full", ""},
+		{"unsupported prefer", "postgres://u:p@db:5432/n?sslmode=prefer", "invalid sslmode"},
+		{"bogus sslmode", "postgres://u:p@db:5432/n?sslmode=bogus", "invalid sslmode"},
+		{"unparsable", "postgres://u:p@db:5432/%zz", "invalid DATABASE_URL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", tt.url)
+
+			err := ValidateDatabaseURL()
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBuildURLHandlesBracketedIPv6Host(t *testing.T) {
+	t.Setenv("DB_SSLMODE", "require")
+	t.Setenv("DB_SSLROOTCERT", "")
+
+	for _, host := range []string{"[::1]", "::1"} {
+		dbURL, err := buildURL(host, "5432", "u", "p", "n")
+		require.NoError(t, err)
+
+		parsed, err := url.Parse(dbURL)
+		require.NoError(t, err)
+		assert.Equal(t, "[::1]:5432", parsed.Host)
+	}
+}
+
+func TestBuildDSNHandlesBracketedIPv6Host(t *testing.T) {
+	t.Setenv("DB_SSLMODE", "require")
+	t.Setenv("DB_SSLROOTCERT", "")
+
+	dsn, err := buildDSN("[::1]", "5432", "u", "p", "n")
+	require.NoError(t, err)
+
+	cfg, err := pgconn.ParseConfig(dsn)
+	require.NoError(t, err)
+	assert.Equal(t, "::1", cfg.Host)
 }
 
 func TestBuildDSNRejectsInvalidSSLMode(t *testing.T) {

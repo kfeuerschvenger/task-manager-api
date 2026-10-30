@@ -13,8 +13,9 @@ import (
 
 var DB *gorm.DB
 
-// validSSLModes lists the sslmode values PostgreSQL accepts.
-var validSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+// validSSLModes lists the sslmode values supported by both drivers in use. The migration driver (lib/pq)
+// rejects allow and prefer, so they are not accepted even though PostgreSQL itself defines them.
+var validSSLModes = []string{"disable", "require", "verify-ca", "verify-full"}
 
 // SSLMode returns the PostgreSQL sslmode taken from DB_SSLMODE, defaulting to "disable".
 // It does not validate the value; use ValidateSSLMode for that.
@@ -25,15 +26,45 @@ func SSLMode() string {
 	return "disable"
 }
 
-// ValidateSSLMode returns an error when DB_SSLMODE is not one of the sslmode values PostgreSQL accepts.
-func ValidateSSLMode() error {
-	mode := SSLMode()
+// isValidSSLMode reports whether mode is in the allowlist.
+func isValidSSLMode(mode string) bool {
 	for _, valid := range validSSLModes {
 		if mode == valid {
-			return nil
+			return true
 		}
 	}
-	return fmt.Errorf("invalid DB_SSLMODE %q: must be one of %s", mode, strings.Join(validSSLModes, ", "))
+	return false
+}
+
+// ValidateSSLMode returns an error when DB_SSLMODE is not one of the supported sslmode values.
+func ValidateSSLMode() error {
+	mode := SSLMode()
+	if !isValidSSLMode(mode) {
+		return fmt.Errorf("invalid DB_SSLMODE %q: must be one of %s", mode, strings.Join(validSSLModes, ", "))
+	}
+	return nil
+}
+
+// ValidateDatabaseURL returns an error when DATABASE_URL is set, parses, and carries an sslmode query
+// parameter outside the allowlist. An unset DATABASE_URL or one without sslmode is accepted.
+func ValidateDatabaseURL() error {
+	raw := os.Getenv("DATABASE_URL")
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid DATABASE_URL: %w", err)
+	}
+	if mode := u.Query().Get("sslmode"); mode != "" && !isValidSSLMode(mode) {
+		return fmt.Errorf("invalid sslmode %q in DATABASE_URL: must be one of %s", mode, strings.Join(validSSLModes, ", "))
+	}
+	return nil
+}
+
+// bareHost strips the brackets from an IPv6 literal such as "[::1]" so net.JoinHostPort can add them back.
+func bareHost(host string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 }
 
 // SSLRootCert returns the path of the CA certificate used by verify-ca and verify-full, taken from DB_SSLROOTCERT.
@@ -57,7 +88,7 @@ func buildDSN(host, port, user, password, dbname string) (string, error) {
 	}
 
 	pairs := [][2]string{
-		{"host", host},
+		{"host", bareHost(host)},
 		{"user", user},
 		{"password", password},
 		{"dbname", dbname},
@@ -92,7 +123,7 @@ func buildURL(host, port, user, password, dbname string) (string, error) {
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(user, password),
-		Host:     net.JoinHostPort(host, port),
+		Host:     net.JoinHostPort(bareHost(host), port),
 		Path:     "/" + dbname,
 		RawQuery: query.Encode(),
 	}
