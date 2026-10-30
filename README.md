@@ -142,5 +142,5 @@ See `.env.example` for the list of environment variables. `JWT_SECRET` must be a
 ## Notes
 
 - Only the task creator can update a task.
-- Passwords must be at least 8 characters and are securely stored using bcrypt.
+- Passwords must be at least 8 characters (counted as Unicode characters) and at most 72 bytes (a bcrypt limit; multibyte characters use more than one byte). They are securely stored using bcrypt.
 - JWT tokens are required for all protected routes.

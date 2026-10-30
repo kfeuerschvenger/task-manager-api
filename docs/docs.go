@@ -79,7 +79,7 @@ const docTemplate = `{
         },
         "/auth/register": {
             "post": {
-                "description": "Creates a new user account with the provided registration details.",
+                "description": "Creates a new user account with the provided registration details. The password must be at least 8 characters and at most 72 bytes (a bcrypt limit).",
                 "consumes": [
                     "application/json"
                 ],
@@ -530,6 +530,7 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "password": {
@@ -549,6 +550,7 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "first_name": {
@@ -561,6 +563,7 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string",
+                    "maxLength": 72,
                     "minLength": 8,
                     "example": "SecurePassword123"
                 }

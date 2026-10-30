@@ -12,7 +12,7 @@ import (
 
 // Register godoc
 // @Summary New User Registration
-// @Description Creates a new user account with the provided registration details.
+// @Description Creates a new user account with the provided registration details. The password must be at least 8 characters and at most 72 bytes (a bcrypt limit).
 // @Router /auth/register [post]
 // @Tags auth
 // @Accept  json

@@ -51,6 +51,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       password:
         example: SecurePassword123
@@ -63,6 +64,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       first_name:
         example: John
@@ -72,6 +74,7 @@ definitions:
         type: string
       password:
         example: SecurePassword123
+        maxLength: 72
         minLength: 8
         type: string
     required:
@@ -183,6 +186,8 @@ paths:
       consumes:
       - application/json
       description: Creates a new user account with the provided registration details.
+        The password must be at least 8 characters and at most 72 bytes (a bcrypt
+        limit).
       parameters:
       - description: Registration details
         in: body
