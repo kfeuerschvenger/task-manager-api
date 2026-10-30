@@ -31,9 +31,13 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/kfeuerschvenger/task-manager-api/database"
 	_ "github.com/kfeuerschvenger/task-manager-api/docs"
+	"github.com/kfeuerschvenger/task-manager-api/middleware"
 	"github.com/kfeuerschvenger/task-manager-api/routes"
 	"github.com/kfeuerschvenger/task-manager-api/utils"
 )
+
+// maxBodyBytes caps the size of any request body (1 MiB).
+const maxBodyBytes = 1 << 20
 
 func main() {
 	// Load environment variables
@@ -108,8 +112,12 @@ func startServer() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: router,
+		Addr:              ":" + port,
+		Handler:           middleware.LimitBody(maxBodyBytes, router),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Graceful shutdown
