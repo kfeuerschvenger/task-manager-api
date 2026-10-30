@@ -25,8 +25,8 @@ func getDatabaseURL() (string, error) {
     }
     // Construct URL in postgres URI format
     return fmt.Sprintf(
-        "postgres://%s:%s@%s:%s/%s?sslmode=disable",
-        user, password, host, port, dbname,
+        "postgres://%s:%s@%s:%s/%s?sslmode=%s",
+        user, password, host, port, dbname, SSLMode(),
     ), nil
 }
 
