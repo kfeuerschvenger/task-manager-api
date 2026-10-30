@@ -89,6 +89,8 @@ task-manager-api
    cp .env.example .env
    ```
 
+   Then edit `.env`: set `DB_PASSWORD` and set `JWT_SECRET` to a random value of at least 32 bytes (for example `openssl rand -base64 32`). The server refuses to start otherwise.
+
 2. Build and run all services using Docker Compose:
 
    ```sh
@@ -135,10 +137,10 @@ The test stack is self-contained: it needs no `.env` file and publishes no ports
 
 ## Environment Variables
 
-See `.env.example` for the list of required environment variables.
+See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`. `DATABASE_URL` optionally overrides the migration connection string. Postgres is published on `127.0.0.1:5432` only.
 
 ## Notes
 
 - Only the task creator can update a task.
-- Passwords are securely stored using bcrypt.
+- Passwords must be at least 8 characters and are securely stored using bcrypt.
 - JWT tokens are required for all protected routes.
