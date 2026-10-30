@@ -65,6 +65,12 @@
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -116,6 +122,12 @@
                     },
                     "409": {
                         "description": "Email already registered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -255,6 +267,12 @@
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -386,6 +404,12 @@
                     },
                     "404": {
                         "description": "Task not found",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }

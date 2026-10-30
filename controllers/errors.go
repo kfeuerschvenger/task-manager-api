@@ -39,6 +39,17 @@ func writeError(w http.ResponseWriter, err error, internalMsg string) {
 	}
 }
 
+// writeDecodeError answers a failed request body decode.
+// A body larger than the server limit gets 413 with a generic message; anything else gets 400 with badRequestMsg.
+func writeDecodeError(w http.ResponseWriter, err error, badRequestMsg string) {
+	var maxBytesErr *http.MaxBytesError
+	if stderrors.As(err, &maxBytesErr) {
+		utils.Error(w, http.StatusRequestEntityTooLarge, "Request body too large")
+		return
+	}
+	utils.Error(w, http.StatusBadRequest, badRequestMsg)
+}
+
 func capitalize(s string) string {
 	if s == "" {
 		return s
