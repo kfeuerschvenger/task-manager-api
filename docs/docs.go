@@ -67,6 +67,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -113,6 +119,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Email already registered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -235,7 +247,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid input or missing required fields",
+                        "description": "Invalid input, missing required fields, or assignee does not exist",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -287,6 +299,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/dto.TaskResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid task ID",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
                     "401": {
@@ -352,7 +370,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid request body or validation error",
+                        "description": "Invalid request body, task ID, or field value",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -406,6 +424,12 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "Task deleted, no content"
+                    },
+                    "400": {
+                        "description": "Invalid task ID",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
                     },
                     "401": {
                         "description": "Missing or invalid token",

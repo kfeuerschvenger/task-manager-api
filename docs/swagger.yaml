@@ -171,6 +171,10 @@ paths:
           description: Invalid credentials
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
       summary: User Login
       tags:
       - auth
@@ -201,6 +205,10 @@ paths:
             $ref: '#/definitions/dto.ErrorResponse'
         "409":
           description: Email already registered
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       summary: New User Registration
@@ -277,7 +285,8 @@ paths:
           schema:
             $ref: '#/definitions/dto.TaskResponse'
         "400":
-          description: Invalid input or missing required fields
+          description: Invalid input, missing required fields, or assignee does not
+            exist
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "401":
@@ -305,6 +314,10 @@ paths:
       responses:
         "204":
           description: Task deleted, no content
+        "400":
+          description: Invalid task ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "401":
           description: Missing or invalid token
           schema:
@@ -343,6 +356,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/dto.TaskResponse'
+        "400":
+          description: Invalid task ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "401":
           description: Missing or invalid token
           schema:
@@ -384,7 +401,7 @@ paths:
           schema:
             $ref: '#/definitions/dto.TaskResponse'
         "400":
-          description: Invalid request body or validation error
+          description: Invalid request body, task ID, or field value
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "401":
