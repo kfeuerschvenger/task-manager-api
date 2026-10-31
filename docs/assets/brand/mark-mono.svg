@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Task Manager API" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M11 5C8 5 8 7 8 9V13C8 15 6 16 5 16C6 16 8 17 8 19V23C8 25 8 27 11 27"/>
+  <path d="M21 5C24 5 24 7 24 9V13C24 15 26 16 27 16C26 16 24 17 24 19V23C24 25 24 27 21 27"/>
+  <path d="M12 16.5L15 19.5L20.5 12.5"/>
+</svg>
