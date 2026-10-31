@@ -125,13 +125,13 @@ func SeedDemo(password string) (DemoSummary, error) {
 // existing row keeps its id, and its hash is only replaced when the password no longer matches, so re-running
 // the seed with the same password leaves the row untouched.
 func upsertDemoUser(tx *gorm.DB, user models.User, password string) (uuid.UUID, error) {
-	var existing models.User
-	err := tx.Where("email = ?", user.Email).First(&existing).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
+	// Find with a limit instead of First: a missing row is the normal first run and must not log as an error.
+	var found []models.User
+	if err := tx.Where("email = ?", user.Email).Limit(1).Find(&found).Error; err != nil {
 		return uuid.Nil, fmt.Errorf("looking up %s: %w", user.Email, err)
 	}
 
-	if err == gorm.ErrRecordNotFound {
+	if len(found) == 0 {
 		hash, err := utils.HashPassword(password)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("hashing demo password: %w", err)
@@ -145,6 +145,7 @@ func upsertDemoUser(tx *gorm.DB, user models.User, password string) (uuid.UUID, 
 		return user.ID, nil
 	}
 
+	existing := found[0]
 	updates := map[string]interface{}{}
 	if existing.FirstName != user.FirstName {
 		updates["first_name"] = user.FirstName
