@@ -21,6 +21,7 @@ import (
 // @Param   input body dto.CreateTaskInput true "Task details"
 // @Success 201 {object} dto.TaskResponse
 // @Failure 400 {object} dto.ErrorResponse "Invalid input or missing required fields"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +76,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 // @Param   status query string false "Filter by task status (pending, in_progress, complete)"
 // @Param   priority query string false "Filter by task priority (low, medium, high)"
 // @Success 200 {array} dto.TaskResponse
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func GetTasks(w http.ResponseWriter, r *http.Request) {
@@ -106,13 +108,17 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetTaskByID godoc
-// @Summary Obtiene una tarea por ID
-// @Description Obtiene una tarea específica por su ID
+// @Summary Get a task by ID
+// @Description Retrieves a single task by its ID.
 // @Router /tasks/{id} [get]
 // @Tags tasks
-// @Param id path string true "ID de la tarea"
+// @Accept  json
+// @Produce  json
+// @Param   id path string true "Task ID"
 // @Success 200 {object} dto.TaskResponse
-// @Failure 404 {object} dto.ErrorResponse
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func GetTaskByID(w http.ResponseWriter, r *http.Request) {
     userID := r.Context().Value(middleware.UserIDKey).(string)
@@ -149,9 +155,11 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 // @Param   id path string true "Task ID"
 // @Param   input body dto.UpdateTaskDTO true "Updated task details"
 // @Success 200 {object} dto.TaskResponse
-// @Failure 400 {object} dto.ErrorResponse "Invalid input or missing required fields"
-// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 400 {object} dto.ErrorResponse "Invalid request body or validation error"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to update this task"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 500 {object} dto.ErrorResponse "Task update failed"
 // @Security BearerAuth
 func UpdateTask(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(string)
@@ -199,9 +207,11 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 // @Router /tasks/{id} [delete]
 // @Tags tasks
 // @Param   id path string true "Task ID"
-// @Success 204 {object} nil
-// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Success 204 "Task deleted, no content"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to delete this task"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func DeleteTask(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(string)

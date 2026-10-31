@@ -20,7 +20,8 @@ import (
 // @Produce  json
 // @Param   input body dto.RegisterRequest true "Registration details"
 // @Success 201 {object} map[string]string
-// @Failure 400 {object} map[string]string
+// @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
+// @Failure 409 {object} dto.ErrorResponse "Email already registered"
 func Register(w http.ResponseWriter, r *http.Request) {
 	var req dto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -55,8 +56,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 // @Produce  json
 // @Param   input body dto.LoginRequest true "Login details"
 // @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 401 {object} map[string]string
+// @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
+// @Failure 401 {object} dto.ErrorResponse "Invalid credentials"
 func Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
