@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +35,9 @@ import (
 	_ "github.com/kfeuerschvenger/task-manager-api/docs"
 	"github.com/kfeuerschvenger/task-manager-api/middleware"
 	"github.com/kfeuerschvenger/task-manager-api/routes"
+	"github.com/kfeuerschvenger/task-manager-api/services"
 	"github.com/kfeuerschvenger/task-manager-api/utils"
+	"github.com/kfeuerschvenger/task-manager-api/validators"
 )
 
 // maxBodyBytes caps the size of any request body (1 MiB).
@@ -78,12 +81,58 @@ func main() {
 		}
 
 		startServer()
+	case "seed":
+		runSeed()
+		return
 	default:
 		fmt.Println("Usage:")
 		fmt.Println("  migrate [up|down]  Run database migrations")
+		fmt.Println("  seed               Load the deterministic demo data (refused when APP_ENV=production)")
 		fmt.Println("  serve              Start the server (default)")
 		os.Exit(1)
 	}
+}
+
+// demoPasswordVariable names the environment variable holding the password of the demo users. It has no default.
+const demoPasswordVariable = "DEMO_PASSWORD"
+
+// checkSeedAllowed returns the demo password when the seed may run, and an error otherwise. It refuses a
+// production environment and a missing or policy-violating password. It touches no database, so both guards
+// fire before any connection is opened.
+func checkSeedAllowed(appEnv, password string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(appEnv), "production") {
+		return "", fmt.Errorf("seed refused: APP_ENV is production")
+	}
+	if password == "" {
+		return "", fmt.Errorf("%s is not set: the demo users need a password and there is no default", demoPasswordVariable)
+	}
+	if err := validators.ValidatePassword(password); err != nil {
+		return "", fmt.Errorf("%s does not meet the password policy: %w", demoPasswordVariable, err)
+	}
+	return password, nil
+}
+
+// runSeed applies migrations, connects and loads the demo data. It exits non-zero when a guard refuses or a
+// step fails.
+func runSeed() {
+	password, err := checkSeedAllowed(os.Getenv("APP_ENV"), os.Getenv(demoPasswordVariable))
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	if err := database.MigrateUp(); err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+	if err := database.Connect(); err != nil {
+		log.Fatalf("Database connection error: %v", err)
+	}
+
+	summary, err := services.SeedDemo(password)
+	if err != nil {
+		log.Fatalf("Seeding failed: %v", err)
+	}
+	log.Printf("Demo data seeded: %d users and %d tasks. Creator %s, assignee %s.",
+		summary.Users, summary.Tasks, services.DemoCreatorEmail, services.DemoAssigneeEmail)
 }
 
 // validateStartupConfig checks the configuration that must be valid before the server starts:

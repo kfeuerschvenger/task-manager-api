@@ -36,11 +36,17 @@ func ValidateRegisterInput(req dto.RegisterRequest) error {
 		return errors.NewValidationError("last name must be at least 2 characters")
 	}
 
-	if utf8.RuneCountInString(req.Password) < MinPasswordChars {
+	return ValidatePassword(req.Password)
+}
+
+// ValidatePassword enforces the password policy shared by registration and the demo seed:
+// at least 8 characters and at most 72 bytes, the limit bcrypt accepts.
+func ValidatePassword(password string) error {
+	if utf8.RuneCountInString(password) < MinPasswordChars {
 		return errors.NewValidationError("password must be at least 8 characters")
 	}
 
-	if len(req.Password) > MaxPasswordBytes {
+	if len(password) > MaxPasswordBytes {
 		return errors.NewValidationError("password must be at most 72 bytes")
 	}
 
