@@ -51,6 +51,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       password:
         example: SecurePassword123
@@ -63,6 +64,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       first_name:
         example: John
@@ -71,8 +73,9 @@ definitions:
         example: Doe
         type: string
       password:
+        description: At least 8 characters and at most 72 bytes (a bcrypt limit).
         example: SecurePassword123
-        minLength: 6
+        minLength: 8
         type: string
     required:
     - email
@@ -171,6 +174,10 @@ paths:
           description: Invalid credentials
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "500":
           description: Internal server error
           schema:
@@ -183,6 +190,8 @@ paths:
       consumes:
       - application/json
       description: Creates a new user account with the provided registration details.
+        The password must be at least 8 characters and at most 72 bytes (a bcrypt
+        limit).
       parameters:
       - description: Registration details
         in: body
@@ -205,6 +214,10 @@ paths:
             $ref: '#/definitions/dto.ErrorResponse'
         "409":
           description: Email already registered
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "500":
@@ -291,6 +304,10 @@ paths:
             $ref: '#/definitions/dto.ErrorResponse'
         "401":
           description: Missing or invalid token
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "500":
@@ -414,6 +431,10 @@ paths:
             $ref: '#/definitions/dto.ErrorResponse'
         "404":
           description: Task not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "500":

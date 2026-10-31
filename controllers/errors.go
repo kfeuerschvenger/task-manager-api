@@ -4,7 +4,8 @@ import (
 	stderrors "errors"
 	"log"
 	"net/http"
-	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	apperrors "github.com/kfeuerschvenger/task-manager-api/errors"
 	"github.com/kfeuerschvenger/task-manager-api/utils"
@@ -39,9 +40,21 @@ func writeError(w http.ResponseWriter, err error, internalMsg string) {
 	}
 }
 
+// writeDecodeError answers a failed request body decode.
+// A body larger than the server limit gets 413 with a generic message; anything else gets 400 with badRequestMsg.
+func writeDecodeError(w http.ResponseWriter, err error, badRequestMsg string) {
+	var maxBytesErr *http.MaxBytesError
+	if stderrors.As(err, &maxBytesErr) {
+		utils.Error(w, http.StatusRequestEntityTooLarge, "Request body too large")
+		return
+	}
+	utils.Error(w, http.StatusBadRequest, badRequestMsg)
+}
+
 func capitalize(s string) string {
-	if s == "" {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	return string(unicode.ToUpper(r)) + s[size:]
 }

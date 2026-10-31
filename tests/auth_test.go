@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,26 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 				"last_name":  "Doe",
 				"email":      "shortpass@example.com",
 				"password":   "123",
+			},
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name: "Seven character password",
+			payload: map[string]string{
+				"first_name": "John",
+				"last_name":  "Doe",
+				"email":      "sevenchars@example.com",
+				"password":   "1234567",
+			},
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name: "73 byte password",
+			payload: map[string]string{
+				"first_name": "John",
+				"last_name":  "Doe",
+				"email":      "toolong@example.com",
+				"password":   strings.Repeat("a", 73),
 			},
 			expectedCode: http.StatusBadRequest,
 		},

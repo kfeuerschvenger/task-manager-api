@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -16,6 +17,21 @@ func jwtSecret() ([]byte, error) {
 		return nil, errors.NewInternalServerError("JWT_SECRET is not set")
 	}
 	return []byte(secret), nil
+}
+
+// MinJWTSecretLength is the minimum JWT_SECRET length in bytes accepted at startup.
+const MinJWTSecretLength = 32
+
+// ValidateJWTSecret returns an error when JWT_SECRET is empty or shorter than MinJWTSecretLength bytes.
+func ValidateJWTSecret() error {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return fmt.Errorf("JWT_SECRET is not set")
+	}
+	if len(secret) < MinJWTSecretLength {
+		return fmt.Errorf("JWT_SECRET must be at least %d bytes long, got %d", MinJWTSecretLength, len(secret))
+	}
+	return nil
 }
 
 // GenerateJWT creates a new JWT token for the given user ID.

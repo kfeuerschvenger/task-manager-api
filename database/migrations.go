@@ -23,11 +23,8 @@ func getDatabaseURL() (string, error) {
     if host == "" || port == "" || user == "" || dbname == "" {
         return "", fmt.Errorf("database connection variables are not set")
     }
-    // Construct URL in postgres URI format
-    return fmt.Sprintf(
-        "postgres://%s:%s@%s:%s/%s?sslmode=disable",
-        user, password, host, port, dbname,
-    ), nil
+    // Construct URL in postgres URI format, escaping every component
+    return buildURL(host, port, user, password, dbname)
 }
 
 // MigrateUp applies all up migrations; reads MIGRATIONS_PATH and constructs the DB URL

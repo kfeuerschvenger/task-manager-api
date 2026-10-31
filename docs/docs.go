@@ -68,6 +68,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -79,7 +85,7 @@ const docTemplate = `{
         },
         "/auth/register": {
             "post": {
-                "description": "Creates a new user account with the provided registration details.",
+                "description": "Creates a new user account with the provided registration details. The password must be at least 8 characters and at most 72 bytes (a bcrypt limit).",
                 "consumes": [
                     "application/json"
                 ],
@@ -119,6 +125,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Email already registered",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -258,6 +270,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -389,6 +407,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Task not found",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request body too large (limit 1 MiB)",
                         "schema": {
                             "$ref": "#/definitions/dto.ErrorResponse"
                         }
@@ -530,6 +554,7 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "password": {
@@ -549,6 +574,7 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "first_name": {
@@ -560,8 +586,9 @@ const docTemplate = `{
                     "example": "Doe"
                 },
                 "password": {
+                    "description": "At least 8 characters and at most 72 bytes (a bcrypt limit).",
                     "type": "string",
-                    "minLength": 6,
+                    "minLength": 8,
                     "example": "SecurePassword123"
                 }
             }

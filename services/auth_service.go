@@ -54,6 +54,8 @@ func AuthenticateUser(req dto.LoginRequest) (string, error) {
 	result := database.DB.Where("email = ?", email).First(&user)
 	if result.Error != nil {
 		if stderrors.Is(result.Error, gorm.ErrRecordNotFound) {
+			// Spend the same bcrypt time as a real comparison so response timing does not reveal registered emails.
+			utils.BurnPasswordCheck(req.Password)
 			return "", errors.NewAuthError("invalid credentials")
 		}
 		return "", errors.WrapInternalServerError("database error", result.Error)

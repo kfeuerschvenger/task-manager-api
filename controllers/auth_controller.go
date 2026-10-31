@@ -12,7 +12,7 @@ import (
 
 // Register godoc
 // @Summary New User Registration
-// @Description Creates a new user account with the provided registration details.
+// @Description Creates a new user account with the provided registration details. The password must be at least 8 characters and at most 72 bytes (a bcrypt limit).
 // @Router /auth/register [post]
 // @Tags auth
 // @Accept  json
@@ -21,11 +21,12 @@ import (
 // @Success 201 {object} map[string]string
 // @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
 // @Failure 409 {object} dto.ErrorResponse "Email already registered"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 func Register(w http.ResponseWriter, r *http.Request) {
 	var req dto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid input")
+		writeDecodeError(w, err, "Invalid input")
 		return
 	}
 
@@ -54,11 +55,12 @@ func Register(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
 // @Failure 401 {object} dto.ErrorResponse "Invalid credentials"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 func Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid input")
+		writeDecodeError(w, err, "Invalid input")
 		return
 	}
 

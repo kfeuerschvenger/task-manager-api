@@ -22,13 +22,14 @@ import (
 // @Success 201 {object} dto.TaskResponse
 // @Failure 400 {object} dto.ErrorResponse "Invalid input, missing required fields, or assignee does not exist"
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func CreateTask(w http.ResponseWriter, r *http.Request) {
 	var input dto.CreateTaskInput
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid JSON")
+		writeDecodeError(w, err, "Invalid JSON")
 		return
 	}
 
@@ -156,6 +157,7 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to update this task"
 // @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
 // @Failure 500 {object} dto.ErrorResponse "Task update failed"
 // @Security BearerAuth
 func UpdateTask(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +166,7 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 
 	var updateData dto.UpdateTaskDTO
 	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid request body")
+		writeDecodeError(w, err, "Invalid request body")
 		return
 	}
 

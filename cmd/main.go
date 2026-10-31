@@ -26,13 +26,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/kfeuerschvenger/task-manager-api/database"
 	_ "github.com/kfeuerschvenger/task-manager-api/docs"
+	"github.com/kfeuerschvenger/task-manager-api/middleware"
 	"github.com/kfeuerschvenger/task-manager-api/routes"
+	"github.com/kfeuerschvenger/task-manager-api/utils"
 )
+
+// maxBodyBytes caps the size of any request body (1 MiB).
+const maxBodyBytes = 1 << 20
 
 func main() {
 	// Load environment variables
@@ -57,6 +63,10 @@ func main() {
 		runMigrations(direction)
 		return
 	case "serve":
+		if err := validateStartupConfig(); err != nil {
+			log.Fatalf("Invalid configuration: %v", err)
+		}
+
 		// Automatically apply migrations before starting
 		if err := database.MigrateUp(); err != nil {
 			log.Fatalf("Migration failed: %v", err)
@@ -74,6 +84,18 @@ func main() {
 		fmt.Println("  serve              Start the server (default)")
 		os.Exit(1)
 	}
+}
+
+// validateStartupConfig checks the configuration that must be valid before the server starts:
+// a strong JWT_SECRET, a recognized DB_SSLMODE, and a supported sslmode inside DATABASE_URL when it is set.
+func validateStartupConfig() error {
+	if err := utils.ValidateJWTSecret(); err != nil {
+		return err
+	}
+	if err := database.ValidateSSLMode(); err != nil {
+		return err
+	}
+	return database.ValidateDatabaseURL()
 }
 
 // runMigrations applies or reverts migrations based on the provided direction
@@ -103,14 +125,18 @@ func startServer() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: router,
+		Addr:              ":" + port,
+		Handler:           middleware.LimitBody(maxBodyBytes, router),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Graceful shutdown
 	go func() {
 		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, os.Interrupt)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
 
 		log.Println("Shutting down server...")

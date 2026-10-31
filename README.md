@@ -89,6 +89,8 @@ task-manager-api
    cp .env.example .env
    ```
 
+   Then edit `.env`: set `DB_PASSWORD` and set `JWT_SECRET` to a random value of at least 32 bytes (for example `openssl rand -base64 32`). The server refuses to start otherwise.
+
 2. Build and run all services using Docker Compose:
 
    ```sh
@@ -135,10 +137,28 @@ The test stack is self-contained: it needs no `.env` file and publishes no ports
 
 ## Environment Variables
 
-See `.env.example` for the list of required environment variables.
+See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`; it must be one of `disable`, `require`, `verify-ca`, or `verify-full`, otherwise the server refuses to start (`allow` and `prefer` are not supported because the migration driver rejects them). `DB_SSLROOTCERT` optionally sets the path of the root certificate used by `verify-ca` and `verify-full`. `DATABASE_URL` optionally overrides the connection string used by the migrations only: it is used verbatim, so `DB_SSLMODE` and `DB_SSLROOTCERT` do not apply to it (only an `sslmode` query parameter in it is checked against the same allowlist at startup), while the application itself keeps connecting with the `DB_*` variables. Postgres is published on `127.0.0.1:5432` only.
+
+### TLS to the database
+
+The image ships the system CA bundle (`ca-certificates`), so `verify-ca` and `verify-full` work against servers signed by a public CA with no extra setup. For a private CA, mount its root certificate into the container and point `DB_SSLROOTCERT` at it, for example with this `docker-compose.yml` override on the `api` service:
+
+```yaml
+    volumes:
+      - ./certs/root.crt:/certs/root.crt:ro
+```
+
+and in `.env`:
+
+```
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/certs/root.crt
+```
+
+The container healthcheck calls `GET /ping` on `APP_PORT` (default `8080`), and both compose services use `restart: unless-stopped`.
 
 ## Notes
 
 - Only the task creator can update a task.
-- Passwords are securely stored using bcrypt.
+- Passwords must be at least 8 characters (counted as Unicode characters) and at most 72 bytes (a bcrypt limit; multibyte characters use more than one byte). They are securely stored using bcrypt.
 - JWT tokens are required for all protected routes.
