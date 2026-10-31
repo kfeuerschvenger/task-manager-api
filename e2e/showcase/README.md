@@ -1,0 +1,78 @@
+# Captures
+
+The screenshots and the animation of the project are produced by a script, not by hand. `capture.mjs` drives the Swagger UI of a running API with a real browser, so the pictures always show the API as it is, with the same data, the same window size and the same frame. `gif.mjs` turns the recorded flow into a GIF and an MP4.
+
+```mermaid
+flowchart LR
+  Seed["go run ./cmd seed"] --> API["API on :8080<br/>with the demo data"]
+  API --> Capture["capture.mjs<br/>Playwright, 1600 x 1000"]
+  Capture --> Raw["out/*.raw.png<br/>not committed"]
+  Capture --> Frame["frame.html<br/>browser window and palette"]
+  Frame --> Framed["docs/assets/screens/*.png"]
+  Capture -->|"hero slug"| Video["out/hero.webm"]
+  Video --> Gif["gif.mjs<br/>ffmpeg, two pass palette"]
+  Gif --> Anim["docs/assets/screens/hero.gif<br/>and hero.mp4"]
+```
+
+## Requirements
+
+- A running API with the demo data. Apply the seed with the same environment the API uses, plus the demo password: `DEMO_PASSWORD=<password> go run ./cmd seed`. The seed refuses `APP_ENV=production` and replaces the demo users' tasks with the same set every time. It prints the two demo emails.
+- Node 22. From this folder: `npm install` and `npx playwright install chromium`.
+- ffmpeg for the GIF and the MP4. Set `FFMPEG` to the executable when it is installed but not on the PATH.
+
+## Running it
+
+From `e2e/showcase/`, with the same password the demo was seeded with:
+
+```bash
+export DEMO_CREATOR_EMAIL=<creator email printed by the seed>
+export DEMO_ASSIGNEE_EMAIL=<assignee email printed by the seed>
+export DEMO_PASSWORD=<password>
+node capture.mjs
+node capture.mjs hero
+node gif.mjs
+```
+
+`node capture.mjs` takes every still, `node capture.mjs hero` records the flow and `node gif.mjs` converts it. `npm run showcase` runs the three in order. Seed again before a run if anybody has used the demo users since.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BASE_URL` | `http://localhost:8080` | The API whose Swagger UI is captured |
+| `DEMO_CREATOR_EMAIL` | None, required | The demo user who owns the tasks |
+| `DEMO_ASSIGNEE_EMAIL` | None, required | The demo user the forbidden shot signs in as |
+| `DEMO_PASSWORD` | None, required | The password the demo was seeded with. It is never written in the repository |
+| `SHOWCASE_OUT` | `docs/assets/screens` | Where the framed shots and the animation are written |
+| `SHOWCASE_FRAME_SCALE` | `1.25` | The pixel density of the framed shots |
+| `SHOWCASE_DEBUG` | unset | Prints the full error of a failed shot |
+| `SLUGS` | Every still | A comma separated list of slugs to capture. A slug may also be passed as an argument |
+| `FFMPEG` | `ffmpeg` | The ffmpeg executable |
+
+The script prints `OK` or `FAIL` for each shot and exits non-zero when any failed.
+
+## The shots
+
+| Slug | Shows | Output |
+|---|---|---|
+| `overview` | The Swagger page with the auth, healthcheck and tasks groups open | `overview.png` |
+| `create-task` | `POST /tasks` executed with the creator's token, answering 201 | `create-task.png` |
+| `filter-high` | `GET /tasks?priority=high`, answering 200 with the seeded high priority tasks | `filter-high.png` |
+| `forbidden` | The assignee trying `PUT /tasks/{id}` on the creator's task, answering 403 | `forbidden.png` |
+| `hero` | Login, Authorize, create a task, then the filtered list | `hero.gif`, `hero.mp4` |
+
+Every still also leaves its unframed screenshot in `out/<slug>.raw.png`, which is not committed.
+
+## What each shot proves and keeps clean
+
+- Every shot asserts that the demo data is on screen: the filtered list must contain a known seeded title, the 201 body must contain the title that was sent, and the 403 body must carry the API's message.
+- Writes are limited to two flows. `create-task` and the hero each create one task and delete it through the API when they finish, even when they fail. The forbidden request is rejected by the API and changes nothing. No dialog is ever confirmed.
+- A bearer token never reaches an image. The Authorize field shows dots, every `pre` block that would print a token (the curl command, the login response) is rewritten to its first characters before it is painted, and a shot fails when the visible text of the page still holds a full token.
+- The hero shows dots where the password goes in the login body. The request that leaves the browser carries the real password, substituted in the network layer, so the password is never on screen.
+- The window is 1600 by 1000. A shot whose exchange is taller grows the window to fit it, so no response is cut. Stills are taken at twice the pixel density.
+- The hero is recorded in the full Chromium build (`channel: 'chromium'`) at a pixel density of 1, because the default headless shell rasterizes in software. The GIF is 20 fps at 1100 pixels wide, under 8 MB, and the MP4 is 25 fps.
+
+## Maintenance
+
+- Rerun the commands after a change to the API surface or to the Swagger annotations, and commit the images with the change.
+- A new shot is one more entry in `SHOTS` in `capture.mjs`: a slug, a function that brings a fresh page to the state to photograph, and a `cleanup` when it writes.
+- The frame is `frame.html`: the window, the address bar and the background are plain CSS in the project palette.
+- The GIF has a budget of 8 MB. `gif.mjs` fails when it is over, and `WIDTH` and `FPS` at its top, or a shorter flow, are the levers.

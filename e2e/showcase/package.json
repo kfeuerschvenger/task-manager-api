@@ -1,0 +1,17 @@
+{
+  "name": "task-manager-api-showcase",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Screenshot and hero capture pipeline for the Swagger UI of the Task Manager API",
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "capture": "node capture.mjs",
+    "capture:hero": "node capture.mjs hero",
+    "gif": "node gif.mjs",
+    "showcase": "node capture.mjs && node capture.mjs hero && node gif.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  }
+}

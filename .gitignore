@@ -4,3 +4,5 @@
 .no-telemetry
 .atl/
 docs/private/
+e2e/showcase/node_modules/
+e2e/showcase/out/
