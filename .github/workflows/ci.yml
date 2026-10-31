@@ -17,6 +17,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -40,11 +41,17 @@ jobs:
       - name: Check Swagger docs are up to date
         run: |
           go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/main.go -o docs --instanceName swagger
-          git diff --exit-code docs/
+          if [ -n "$(git status --porcelain docs/)" ]; then
+            echo "Swagger docs are stale. Run: swag init -g cmd/main.go -o docs --instanceName swagger (v1.16.6) and commit the result."
+            git status --porcelain docs/
+            git diff --stat docs/
+            exit 1
+          fi
 
   test:
     name: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -81,6 +88,7 @@ jobs:
   docker:
     name: docker
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
