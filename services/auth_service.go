@@ -1,6 +1,7 @@
 package services
 
 import (
+	stderrors "errors"
 	"strings"
 
 	"github.com/kfeuerschvenger/task-manager-api/database"
@@ -18,13 +19,13 @@ func RegisterUser(req dto.RegisterRequest) (string, error) {
 	result := database.DB.Where("email = ?", email).First(&existingUser)
 	if result.Error == nil {
 		return "", errors.NewConflictError("email already registered")
-	} else if result.Error != nil && result.Error != gorm.ErrRecordNotFound {
-		return "", errors.NewInternalServerError("database error")
+	} else if !stderrors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return "", errors.WrapInternalServerError("database error", result.Error)
 	}
 
 	hashedPassword, err := utils.HashPassword(req.Password)
 	if err != nil {
-		return "", errors.NewInternalServerError("error hashing password")
+		return "", errors.WrapInternalServerError("error hashing password", err)
 	}
 
 	user := models.User{
@@ -35,12 +36,12 @@ func RegisterUser(req dto.RegisterRequest) (string, error) {
 	}
 
 	if err := database.DB.Create(&user).Error; err != nil {
-		return "", errors.NewInternalServerError("error creating user")
+		return "", errors.WrapInternalServerError("error creating user", err)
 	}
 
 	token, err := utils.GenerateJWT(user.ID.String())
 	if err != nil {
-		return "", errors.NewInternalServerError("error generating token")
+		return "", errors.WrapInternalServerError("error generating token", err)
 	}
 
 	return token, nil
@@ -52,7 +53,10 @@ func AuthenticateUser(req dto.LoginRequest) (string, error) {
 	var user models.User
 	result := database.DB.Where("email = ?", email).First(&user)
 	if result.Error != nil {
-		return "", errors.NewAuthError("invalid credentials")
+		if stderrors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", errors.NewAuthError("invalid credentials")
+		}
+		return "", errors.WrapInternalServerError("database error", result.Error)
 	}
 
 	if !utils.CheckPasswordHash(req.Password, user.Password) {
@@ -61,7 +65,7 @@ func AuthenticateUser(req dto.LoginRequest) (string, error) {
 
 	token, err := utils.GenerateJWT(user.ID.String())
 	if err != nil {
-		return "", errors.NewInternalServerError("error generating token")
+		return "", errors.WrapInternalServerError("error generating token", err)
 	}
 
 	return token, nil

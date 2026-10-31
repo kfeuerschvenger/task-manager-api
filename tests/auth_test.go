@@ -1,34 +1,26 @@
 package tests
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRegistrationWithExistingEmail(t *testing.T) {
-	// Ensure a user is already registered
-	SetupTestUser(t)
+	user := newTestUser(t)
 
 	payload := map[string]string{
 		"first_name": "Test",
 		"last_name":  "User",
-		"email":      testEmail, // Email already exists
+		"email":      user.Email, // Email already exists
 		"password":   "anotherpassword",
 	}
-	body, _ := json.Marshal(payload)
 
-	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	code, _ := postJSON(t, "/auth/register", payload)
 
-	resp := httptest.NewRecorder()
-	Router.ServeHTTP(resp, req)
-
-	assert.Equal(t, http.StatusConflict, resp.Code)
+	assert.Equal(t, http.StatusConflict, code)
 }
 
 func TestRegistrationWithInvalidData(t *testing.T) {
@@ -70,39 +62,36 @@ func TestRegistrationWithInvalidData(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body, _ := json.Marshal(tc.payload)
+			code, _ := postJSON(t, "/auth/register", tc.payload)
 
-			req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-
-			resp := httptest.NewRecorder()
-			Router.ServeHTTP(resp, req)
-
-			assert.Equal(t, tc.expectedCode, resp.Code)
+			assert.Equal(t, tc.expectedCode, code)
 		})
 	}
 }
 
 func TestLoginWithValidCredentials(t *testing.T) {
-	SetupTestUser(t) // Ensure the test user exists
+	user := newTestUser(t)
 
-	payload := map[string]string{
-		"email":    testEmail,
-		"password": testPass,
-	}
-	body, _ := json.Marshal(payload)
-
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp := httptest.NewRecorder()
-	Router.ServeHTTP(resp, req)
-
-	assert.Equal(t, http.StatusOK, resp.Code)
+	code, body := postJSON(t, "/auth/login", map[string]string{
+		"email":    user.Email,
+		"password": user.Password,
+	})
+	assert.Equal(t, http.StatusOK, code)
 
 	var response map[string]string
-	json.Unmarshal(resp.Body.Bytes(), &response)
+	assert.NoError(t, json.Unmarshal(body, &response))
 
 	assert.NotEmpty(t, response["token"])
 	assert.Empty(t, response["error"])
+}
+
+func TestLoginWithWrongPassword(t *testing.T) {
+	user := newTestUser(t)
+
+	code, _ := postJSON(t, "/auth/login", map[string]string{
+		"email":    user.Email,
+		"password": "not-the-password",
+	})
+
+	assert.Equal(t, http.StatusUnauthorized, code)
 }

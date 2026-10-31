@@ -20,7 +20,7 @@ import (
 // @Produce  json
 // @Param   input body dto.CreateTaskInput true "Task details"
 // @Success 201 {object} dto.TaskResponse
-// @Failure 400 {object} dto.ErrorResponse "Invalid input or missing required fields"
+// @Failure 400 {object} dto.ErrorResponse "Invalid input, missing required fields, or assignee does not exist"
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
@@ -51,7 +51,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := services.CreateTask(input, creatorID)
 	if err != nil {
-		utils.Error(w, http.StatusInternalServerError, "Failed to create task")
+		writeError(w, err, "Failed to create task")
 		return
 	}
 
@@ -116,6 +116,7 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 // @Produce  json
 // @Param   id path string true "Task ID"
 // @Success 200 {object} dto.TaskResponse
+// @Failure 400 {object} dto.ErrorResponse "Invalid task ID"
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 404 {object} dto.ErrorResponse "Task not found"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
@@ -126,11 +127,7 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 
     task, err := services.GetTaskByID(taskID, userID)
     if err != nil {
-        if err.Error() == "task not found" {
-            utils.Error(w, http.StatusNotFound, "Task not found")
-        } else {
-            utils.Error(w, http.StatusInternalServerError, "Failed to retrieve task")
-        }
+        writeError(w, err, "Failed to retrieve task")
         return
     }
 
@@ -155,7 +152,7 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 // @Param   id path string true "Task ID"
 // @Param   input body dto.UpdateTaskDTO true "Updated task details"
 // @Success 200 {object} dto.TaskResponse
-// @Failure 400 {object} dto.ErrorResponse "Invalid request body or validation error"
+// @Failure 400 {object} dto.ErrorResponse "Invalid request body, task ID, or field value"
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to update this task"
 // @Failure 404 {object} dto.ErrorResponse "Task not found"
@@ -173,15 +170,7 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := services.UpdateTask(taskID, userID, updateData)
 	if err != nil {
-		if err.Error() == "unauthorized" {
-			utils.Error(w, http.StatusForbidden, "You are not the creator of this task")
-			return
-		}
-		if err.Error() == "task not found" {
-			utils.Error(w, http.StatusNotFound, "Task not found")
-			return
-		}
-		utils.Error(w, http.StatusBadRequest, err.Error())
+		writeError(w, err, "Task update failed")
 		return
 	}
 	if task == nil {
@@ -208,6 +197,7 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 // @Tags tasks
 // @Param   id path string true "Task ID"
 // @Success 204 "Task deleted, no content"
+// @Failure 400 {object} dto.ErrorResponse "Invalid task ID"
 // @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to delete this task"
 // @Failure 404 {object} dto.ErrorResponse "Task not found"
@@ -219,14 +209,7 @@ func DeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	err := services.DeleteTask(taskID, userID)
 	if err != nil {
-		switch err.Error() {
-		case "task not found":
-			utils.Error(w, http.StatusNotFound, "Task not found")
-		case "unauthorized":
-			utils.Error(w, http.StatusForbidden, "You are not authorized to delete this task")
-		default:
-			utils.Error(w, http.StatusInternalServerError, "Error deleting task")
-		}
+		writeError(w, err, "Error deleting task")
 		return
 	}
 

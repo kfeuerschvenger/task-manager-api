@@ -104,10 +104,11 @@ task-manager-api
 To run the unit and integration tests, use the following command:
 
 ```sh
-docker compose -f docker-compose-test.yml up --abort-on-container-exit test
+docker compose -f docker-compose-test.yml up --abort-on-container-exit --exit-code-from test
+docker compose -f docker-compose-test.yml down -v
 ```
 
-make sure the .env file is properly configured for the test environment.
+The test stack is self-contained: it needs no `.env` file and publishes no ports.
 
 ## API Endpoints
 
