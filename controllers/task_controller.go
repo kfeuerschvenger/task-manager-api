@@ -57,12 +57,12 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := dto.TaskResponse{
-    ID:          task.ID.String(),
-    Title:       task.Title,
-    Description: task.Description,
-    DueDate:     task.DueDate,
-    Status:      task.Status,
-    Priority:    task.Priority,
+		ID:          task.ID.String(),
+		Title:       task.Title,
+		Description: task.Description,
+		DueDate:     task.DueDate,
+		Status:      task.Status,
+		Priority:    task.Priority,
 	}
 	utils.JSON(w, http.StatusCreated, resp)
 }
@@ -96,14 +96,14 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	// Map models to response DTOs
 	var resp []dto.TaskResponse
 	for _, t := range tasks {
-			resp = append(resp, dto.TaskResponse{
-					ID:          t.ID.String(),
-					Title:       t.Title,
-					Description: t.Description,
-					DueDate:     t.DueDate,
-					Status:      t.Status,
-					Priority:    t.Priority,
-			})
+		resp = append(resp, dto.TaskResponse{
+			ID:          t.ID.String(),
+			Title:       t.Title,
+			Description: t.Description,
+			DueDate:     t.DueDate,
+			Status:      t.Status,
+			Priority:    t.Priority,
+		})
 	}
 	utils.JSON(w, http.StatusOK, resp)
 }
@@ -123,24 +123,24 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func GetTaskByID(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value(middleware.UserIDKey).(string)
-    taskID := mux.Vars(r)["id"]
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	taskID := mux.Vars(r)["id"]
 
-    task, err := services.GetTaskByID(taskID, userID)
-    if err != nil {
-        writeError(w, err, "Failed to retrieve task")
-        return
-    }
+	task, err := services.GetTaskByID(taskID, userID)
+	if err != nil {
+		writeError(w, err, "Failed to retrieve task")
+		return
+	}
 
-    resp := dto.TaskResponse{
-        ID:          task.ID.String(),
-        Title:       task.Title,
-        Description: task.Description,
-        DueDate:     task.DueDate,
-        Status:      task.Status,
-        Priority:    task.Priority,
-    }
-    utils.JSON(w, http.StatusOK, resp)
+	resp := dto.TaskResponse{
+		ID:          task.ID.String(),
+		Title:       task.Title,
+		Description: task.Description,
+		DueDate:     task.DueDate,
+		Status:      task.Status,
+		Priority:    task.Priority,
+	}
+	utils.JSON(w, http.StatusOK, resp)
 }
 
 // UpdateTask godoc
@@ -176,8 +176,8 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if task == nil {
-    utils.Error(w, http.StatusInternalServerError, "Task update failed")
-    return
+		utils.Error(w, http.StatusInternalServerError, "Task update failed")
+		return
 	}
 
 	// Map to response DTO

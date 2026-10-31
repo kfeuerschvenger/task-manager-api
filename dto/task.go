@@ -6,9 +6,9 @@ import "time"
 type CreateTaskInput struct {
 	Title       string    `json:"title" validate:"required" example:"Complete project documentation"`
 	Description string    `json:"description" validate:"required" example:"Write detailed documentation for the project including setup, usage, and API endpoints."`
-	DueDate     time.Time `json:"due_date" validate:"required" example:"2023-12-31T23:59:59Z"` // ISO string
-	Priority    string    `json:"priority" enums:"low,medium,high" example:"high"` // default: medium
-	Status      string    `json:"status" enums:"pending,in_progress,complete" example:"in_progress"` // default: pending
+	DueDate     time.Time `json:"due_date" validate:"required" example:"2023-12-31T23:59:59Z"`          // ISO string
+	Priority    string    `json:"priority" enums:"low,medium,high" example:"high"`                      // default: medium
+	Status      string    `json:"status" enums:"pending,in_progress,complete" example:"in_progress"`    // default: pending
 	AssigneeID  string    `json:"assignee_id,omitempty" example:"123e4567-e89b-12d3-a456-426614174000"` // UUID of the user assigned to the task
 }
 
@@ -25,10 +25,10 @@ type UpdateTaskDTO struct {
 // TaskResponse represents the response structure for a task.
 // It includes all fields of a task, formatted for API responses.
 type TaskResponse struct {
-    ID          string    `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
-    Title       string    `json:"title" example:"Complete project documentation"`
-    Description string    `json:"description" example:"Write detailed documentation for the project including setup, usage, and API endpoints."`
-    DueDate     time.Time `json:"due_date" example:"2025-06-01T15:04:05Z"`
-    Status      string    `json:"status" example:"pending"`
-    Priority    string    `json:"priority" example:"high"`
+	ID          string    `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Title       string    `json:"title" example:"Complete project documentation"`
+	Description string    `json:"description" example:"Write detailed documentation for the project including setup, usage, and API endpoints."`
+	DueDate     time.Time `json:"due_date" example:"2025-06-01T15:04:05Z"`
+	Status      string    `json:"status" example:"pending"`
+	Priority    string    `json:"priority" example:"high"`
 }
