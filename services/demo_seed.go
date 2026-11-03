@@ -151,7 +151,8 @@ func SeedDemoSet(set DemoSet, password string) (DemoSummary, error) {
 
 		creatorID := ids[set.Creator.Email]
 		assigneeID := ids[set.Assignee.Email]
-		// Both ids equal the derived ones here, so the deletion cannot reach a row the set does not own.
+		// Both ids equal the derived ones here, so this clears every task created by the set's two users, including
+		// any added through the API since the last seed. Tasks created by other users are not touched.
 		if err := tx.Where("creator_id IN ?", []uuid.UUID{creatorID, assigneeID}).Delete(&models.Task{}).Error; err != nil {
 			return fmt.Errorf("clearing demo tasks: %w", err)
 		}
