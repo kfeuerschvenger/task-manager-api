@@ -1,7 +1,9 @@
 package services
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,12 +20,65 @@ const (
 	DemoAssigneeEmail = "theo.nakamura@example.com"
 )
 
+// DemoReferenceVariable names the optional environment variable that moves the reference date of the demo
+// due dates. It holds a date in YYYY-MM-DD format.
+const DemoReferenceVariable = "DEMO_REFERENCE"
+
 // demoNamespace derives the fixed identifiers of the demo rows, so the same seed always produces the same ids.
 var demoNamespace = uuid.MustParse("6f1d2c3a-5b7e-4a90-8d21-0c4e9a7b3f10")
 
-// demoReference is the instant every demo due date is measured from. It is a constant so the data does not
-// drift with the day the seed runs.
-var demoReference = time.Date(2026, time.November, 2, 9, 0, 0, 0, time.UTC)
+// DefaultDemoReference is the instant every demo due date is measured from unless DEMO_REFERENCE overrides it.
+// It is fixed so the data does not drift with the day the seed runs.
+var DefaultDemoReference = time.Date(2026, time.November, 2, 9, 0, 0, 0, time.UTC)
+
+// ErrDemoUserConflict is returned when a user with a demo email exists under an id the seed did not derive.
+var ErrDemoUserConflict = errors.New("a user with the demo email exists under a different id")
+
+// ParseDemoReference turns the value of DEMO_REFERENCE into the reference instant. An empty value selects
+// DefaultDemoReference, and anything that is not a valid YYYY-MM-DD date is rejected.
+func ParseDemoReference(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DefaultDemoReference, nil
+	}
+	day, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s must be a date in YYYY-MM-DD format, got %q", DemoReferenceVariable, value)
+	}
+	return time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.UTC), nil
+}
+
+// DemoUser is the identity of one demo account.
+type DemoUser struct {
+	Email     string
+	FirstName string
+	LastName  string
+}
+
+// DemoSet is everything that identifies one seeded demo: the two accounts, the namespace the ids are derived
+// from, and the reference instant of the due dates. The real demo is DefaultDemoSet. A test passes its own set,
+// with a fresh namespace and unique emails, so it never touches the real demo rows.
+type DemoSet struct {
+	Creator   DemoUser
+	Assignee  DemoUser
+	Namespace uuid.UUID
+	Reference time.Time
+}
+
+// DefaultDemoSet is the real demo: Maya and Theo, the fixed namespace and the given reference instant.
+func DefaultDemoSet(reference time.Time) DemoSet {
+	return DemoSet{
+		Creator:   DemoUser{Email: DemoCreatorEmail, FirstName: "Maya", LastName: "Rivera"},
+		Assignee:  DemoUser{Email: DemoAssigneeEmail, FirstName: "Theo", LastName: "Nakamura"},
+		Namespace: demoNamespace,
+		Reference: reference,
+	}
+}
+
+// UserIDs returns the ids the set derives for its creator and assignee.
+func (set DemoSet) UserIDs() (creator, assignee uuid.UUID) {
+	return uuid.NewSHA1(set.Namespace, []byte(set.Creator.Email)), uuid.NewSHA1(set.Namespace, []byte(set.Assignee.Email))
+}
 
 // DemoSummary reports what SeedDemo wrote.
 type DemoSummary struct {
@@ -60,53 +115,67 @@ func demoTasks() []demoTask {
 	}
 }
 
-// demoIdentity builds the user rows for the two demo accounts. The id is derived from the email.
-func demoIdentity() []models.User {
+// demoIdentity builds the user rows for the two accounts of the set. The id is derived from the email.
+func demoIdentity(set DemoSet) []models.User {
+	creatorID, assigneeID := set.UserIDs()
 	return []models.User{
-		{ID: uuid.NewSHA1(demoNamespace, []byte(DemoCreatorEmail)), FirstName: "Maya", LastName: "Rivera", Email: DemoCreatorEmail},
-		{ID: uuid.NewSHA1(demoNamespace, []byte(DemoAssigneeEmail)), FirstName: "Theo", LastName: "Nakamura", Email: DemoAssigneeEmail},
+		{ID: creatorID, FirstName: set.Creator.FirstName, LastName: set.Creator.LastName, Email: set.Creator.Email},
+		{ID: assigneeID, FirstName: set.Assignee.FirstName, LastName: set.Assignee.LastName, Email: set.Assignee.Email},
 	}
 }
 
-// SeedDemo writes the deterministic demo data: two users and their tasks. It is idempotent. Users are matched
-// by email and never duplicated, and the tasks created by the demo users are replaced by the same set with the
-// same ids, so a second run leaves the rows as the first one did. Users and tasks of anyone else are not touched.
+// SeedDemo writes the real demo data, measured from the given reference instant. See SeedDemoSet.
+func SeedDemo(password string, reference time.Time) (DemoSummary, error) {
+	return SeedDemoSet(DefaultDemoSet(reference), password)
+}
+
+// SeedDemoSet writes the deterministic demo data of one set: two users and their tasks. It is idempotent. A user
+// is matched by email and only updated when its id is the one the set derives, and the tasks created by the set's
+// users are replaced by the same tasks with the same ids, so a second run leaves the rows as the first one did.
+// A user that holds a demo email under any other id aborts the run with ErrDemoUserConflict, and neither that
+// user nor its tasks are touched. Users and tasks of anyone else are not touched either.
 //
 // The caller must have validated the password and refused production.
-func SeedDemo(password string) (DemoSummary, error) {
-	users := demoIdentity()
+func SeedDemoSet(set DemoSet, password string) (DemoSummary, error) {
+	users := demoIdentity(set)
 	ids := make(map[string]uuid.UUID, len(users))
 
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		for _, user := range users {
-			id, err := upsertDemoUser(tx, user, password)
+			id, err := upsertDemoUser(tx, user, password, set.Reference)
 			if err != nil {
 				return err
 			}
 			ids[user.Email] = id
 		}
 
-		creatorID := ids[DemoCreatorEmail]
-		demoIDs := []uuid.UUID{creatorID, ids[DemoAssigneeEmail]}
-		if err := tx.Where("creator_id IN ?", demoIDs).Delete(&models.Task{}).Error; err != nil {
+		creatorID := ids[set.Creator.Email]
+		assigneeID := ids[set.Assignee.Email]
+		// Both ids equal the derived ones here, so the deletion cannot reach a row the set does not own.
+		if err := tx.Where("creator_id IN ?", []uuid.UUID{creatorID, assigneeID}).Delete(&models.Task{}).Error; err != nil {
 			return fmt.Errorf("clearing demo tasks: %w", err)
 		}
 
 		tasks := demoTasks()
 		rows := make([]models.Task, 0, len(tasks))
 		for _, task := range tasks {
-			due := demoReference.AddDate(0, 0, task.DueInDays)
+			due := set.Reference.AddDate(0, 0, task.DueInDays)
+			// The task table names its assignee by the real demo email, which stands for the set's assignee.
+			taskAssignee := creatorID
+			if task.Assignee == DemoAssigneeEmail {
+				taskAssignee = assigneeID
+			}
 			rows = append(rows, models.Task{
-				ID:          uuid.NewSHA1(demoNamespace, []byte("task:"+task.Slug)),
+				ID:          uuid.NewSHA1(set.Namespace, []byte("task:"+task.Slug)),
 				Title:       task.Title,
 				Description: task.Description,
 				DueDate:     due,
 				Priority:    task.Priority,
 				Status:      task.Status,
 				CreatorID:   creatorID,
-				AssigneeID:  ids[task.Assignee],
-				CreatedAt:   demoReference,
-				UpdatedAt:   demoReference,
+				AssigneeID:  taskAssignee,
+				CreatedAt:   set.Reference,
+				UpdatedAt:   set.Reference,
 			})
 		}
 		if err := tx.Create(&rows).Error; err != nil {
@@ -121,10 +190,11 @@ func SeedDemo(password string) (DemoSummary, error) {
 	return DemoSummary{Users: len(users), Tasks: len(demoTasks())}, nil
 }
 
-// upsertDemoUser makes sure the demo user exists with the given name and password and returns its id. An
-// existing row keeps its id, and its hash is only replaced when the password no longer matches, so re-running
-// the seed with the same password leaves the row untouched.
-func upsertDemoUser(tx *gorm.DB, user models.User, password string) (uuid.UUID, error) {
+// upsertDemoUser makes sure the demo user exists with the given name and password and returns its id. A row
+// found by email must carry the id derived for the user, otherwise the call fails with ErrDemoUserConflict
+// before anything is written. A matching row keeps its id, and its hash is only replaced when the password no
+// longer matches, so re-running the seed with the same password leaves the row untouched.
+func upsertDemoUser(tx *gorm.DB, user models.User, password string, reference time.Time) (uuid.UUID, error) {
 	// Find with a limit instead of First: a missing row is the normal first run and must not log as an error.
 	var found []models.User
 	if err := tx.Where("email = ?", user.Email).Limit(1).Find(&found).Error; err != nil {
@@ -137,8 +207,8 @@ func upsertDemoUser(tx *gorm.DB, user models.User, password string) (uuid.UUID, 
 			return uuid.Nil, fmt.Errorf("hashing demo password: %w", err)
 		}
 		user.Password = hash
-		user.CreatedAt = demoReference
-		user.UpdatedAt = demoReference
+		user.CreatedAt = reference
+		user.UpdatedAt = reference
 		if err := tx.Create(&user).Error; err != nil {
 			return uuid.Nil, fmt.Errorf("creating %s: %w", user.Email, err)
 		}
@@ -146,6 +216,10 @@ func upsertDemoUser(tx *gorm.DB, user models.User, password string) (uuid.UUID, 
 	}
 
 	existing := found[0]
+	if existing.ID != user.ID {
+		return uuid.Nil, fmt.Errorf("%w: %s has id %s, the demo derives %s; remove or rename that user before seeding",
+			ErrDemoUserConflict, user.Email, existing.ID, user.ID)
+	}
 	updates := map[string]interface{}{}
 	if existing.FirstName != user.FirstName {
 		updates["first_name"] = user.FirstName

@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -87,7 +88,7 @@ func main() {
 	default:
 		fmt.Println("Usage:")
 		fmt.Println("  migrate [up|down]  Run database migrations")
-		fmt.Println("  seed               Load the deterministic demo data (refused when APP_ENV=production)")
+		fmt.Println("  seed               Load the deterministic demo data (needs APP_ENV=development, dev, local or test)")
 		fmt.Println("  serve              Start the server (default)")
 		os.Exit(1)
 	}
@@ -96,12 +97,17 @@ func main() {
 // demoPasswordVariable names the environment variable holding the password of the demo users. It has no default.
 const demoPasswordVariable = "DEMO_PASSWORD"
 
-// checkSeedAllowed returns the demo password when the seed may run, and an error otherwise. It refuses a
-// production environment and a missing or policy-violating password. It touches no database, so both guards
-// fire before any connection is opened.
+// seedAllowedEnvironments lists the APP_ENV values (compared trimmed and case-insensitive) under which the seed runs.
+var seedAllowedEnvironments = []string{"development", "dev", "local", "test"}
+
+// checkSeedAllowed returns the demo password when the seed may run, and an error otherwise. It is an allowlist:
+// APP_ENV must be one of seedAllowedEnvironments, so an unset or unknown value is refused. A missing or
+// policy-violating password is refused too. It touches no database, so both guards fire before any connection
+// is opened.
 func checkSeedAllowed(appEnv, password string) (string, error) {
-	if strings.EqualFold(strings.TrimSpace(appEnv), "production") {
-		return "", fmt.Errorf("seed refused: APP_ENV is production")
+	env := strings.ToLower(strings.TrimSpace(appEnv))
+	if !slices.Contains(seedAllowedEnvironments, env) {
+		return "", fmt.Errorf("seed refused: APP_ENV is %q, it must be one of %s", appEnv, strings.Join(seedAllowedEnvironments, ", "))
 	}
 	if password == "" {
 		return "", fmt.Errorf("%s is not set: the demo users need a password and there is no default", demoPasswordVariable)
@@ -119,6 +125,10 @@ func runSeed() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
+	reference, err := services.ParseDemoReference(os.Getenv(services.DemoReferenceVariable))
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	if err := database.MigrateUp(); err != nil {
 		log.Fatalf("Migration failed: %v", err)
@@ -127,7 +137,7 @@ func runSeed() {
 		log.Fatalf("Database connection error: %v", err)
 	}
 
-	summary, err := services.SeedDemo(password)
+	summary, err := services.SeedDemo(password, reference)
 	if err != nil {
 		log.Fatalf("Seeding failed: %v", err)
 	}
