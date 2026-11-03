@@ -12,29 +12,29 @@ Nothing here is promised or scheduled. Each entry says what is missing today and
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Helvetica, Arial, sans-serif", "primaryColor": "#D6F3FA", "primaryBorderColor": "#00ADD8", "primaryTextColor": "#0F172A", "lineColor": "#0092B8", "textColor": "#0F172A", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart LR
-  R[Roadmap] --> S[Security]
-  R --> L[Reliability]
-  R --> A[API contract]
-  R --> P[Pipeline]
-  S --> S1[CORS and rate limiting]
-  S --> S2[Token refresh and revocation]
-  L --> L1[Graceful shutdown that waits]
-  A --> A1[Empty list as an array]
-  A --> A2[Editable titles]
-  A --> A3[Validation message capitalisation]
-  A --> A4[TokenResponse in the spec]
-  A --> A5[Configurable Swagger host]
-  P --> P1[Actions pinned to commit SHAs]
+  R[Roadmap] --> sec[Security]
+  R --> rel[Reliability]
+  R --> api[API contract]
+  R --> pipe[Pipeline]
+  sec --> cors[CORS and rate limiting]
+  sec --> tok[Token refresh and revocation]
+  rel --> shut[Graceful shutdown that waits]
+  api --> arr[Empty list as an array]
+  api --> title[Editable titles]
+  api --> msg[Validation message capitalisation]
+  api --> tr[TokenResponse in the spec]
+  api --> host[Configurable Swagger host]
+  pipe --> pin[Actions pinned to commit SHAs]
   classDef cyan fill:#D6F3FA,stroke:#00ADD8,color:#0F172A
   classDef coral fill:#FFE4E8,stroke:#F43F5E,color:#0F172A
   classDef amber fill:#FEF3C7,stroke:#F59E0B,color:#0F172A
   classDef green fill:#DCFCE7,stroke:#22C55E,color:#0F172A
   classDef slate fill:#F1F5F9,stroke:#94A3B8,color:#0F172A
   class R slate
-  class S,S1,S2 coral
-  class L,L1 amber
-  class A,A1,A2,A3,A4,A5 cyan
-  class P,P1 green
+  class sec,cors,tok coral
+  class rel,shut amber
+  class api,arr,title,msg,tr,host cyan
+  class pipe,pin green
 ```
 
 | Item | In one line |
