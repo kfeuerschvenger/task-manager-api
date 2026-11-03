@@ -127,14 +127,21 @@ const seedAllowRemoteVariable = "DEMO_SEED_ALLOW_REMOTE"
 // alias for the machine.
 var seedLocalHosts = []string{"localhost", "127.0.0.1", "::1", "db", "host.docker.internal"}
 
-// isLocalSeedHost reports whether the host (compared trimmed and case-insensitive) is one of seedLocalHosts.
+// isLocalSeedHost reports whether the host (compared trimmed and case-insensitive, without the brackets of an
+// IPv6 literal, as database.Connect strips them) is one of seedLocalHosts.
 func isLocalSeedHost(host string) bool {
-	return slices.Contains(seedLocalHosts, strings.ToLower(strings.TrimSpace(host)))
+	bare := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(host), "["), "]")
+	return slices.Contains(seedLocalHosts, strings.ToLower(bare))
 }
 
-// seedTarget returns the host and database name the seed would connect to: the ones in databaseURL when it is
-// set, otherwise dbHost and dbName. It never returns or reports a credential, and the error of an unparsable URL
-// is replaced by a fixed message because the parser would echo the URL, password included.
+// seedHostOverrideParameters are the DATABASE_URL query parameters that libpq and lib/pq let replace the host of
+// the URL authority, so a URL carrying one cannot be checked by its host.
+var seedHostOverrideParameters = []string{"host", "hostaddr", "service"}
+
+// seedTarget returns the host and database name the migrations would use: the ones in databaseURL when it is
+// set (getDatabaseURL gives it precedence), otherwise dbHost and dbName. It never returns or reports a
+// credential, and the error of an unparsable URL is replaced by a fixed message because the parser would echo the
+// URL, password included. A URL whose query carries host, hostaddr or service is refused.
 func seedTarget(databaseURL, dbHost, dbName string) (string, string, error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return strings.TrimSpace(dbHost), strings.TrimSpace(dbName), nil
@@ -143,16 +150,66 @@ func seedTarget(databaseURL, dbHost, dbName string) (string, string, error) {
 	if err != nil {
 		return "", "", errors.New("seed refused: DATABASE_URL cannot be parsed, so its host cannot be checked")
 	}
+	query := parsed.Query()
+	for _, parameter := range seedHostOverrideParameters {
+		if query.Has(parameter) {
+			return "", "", fmt.Errorf("seed refused: DATABASE_URL carries the %q query parameter, which overrides the host of the URL, so its host cannot be checked", parameter)
+		}
+	}
 	return parsed.Hostname(), strings.TrimPrefix(parsed.Path, "/"), nil
 }
 
-// checkSeedTarget returns an error when the host is not local and allowRemote is not "1". It touches no database.
-func checkSeedTarget(host, allowRemote string) error {
-	if isLocalSeedHost(host) || strings.TrimSpace(allowRemote) == "1" {
+// seedDatabaseTarget is one database the seed run touches, with the role it plays.
+type seedDatabaseTarget struct {
+	Role string
+	Host string
+	Name string
+}
+
+// seedTargets collects every target the seed run touches. The migrations use DATABASE_URL when it is set and
+// DB_HOST otherwise, while database.Connect always uses DB_HOST and DB_NAME, so both are checked.
+func seedTargets(databaseURL, dbHost, dbName string) ([]seedDatabaseTarget, error) {
+	host, name, err := seedTarget(databaseURL, dbHost, dbName)
+	if err != nil {
+		return nil, err
+	}
+	return []seedDatabaseTarget{
+		{Role: "migrations", Host: host, Name: name},
+		{Role: "connection", Host: strings.TrimSpace(dbHost), Name: strings.TrimSpace(dbName)},
+	}, nil
+}
+
+// checkSeedTargets returns an error when any target is not local and allowRemote is not "1". It touches no
+// database.
+func checkSeedTargets(targets []seedDatabaseTarget, allowRemote string) error {
+	if strings.TrimSpace(allowRemote) == "1" {
 		return nil
 	}
-	return fmt.Errorf("seed refused: the database host %q is not local (%s). Set %s=1 to seed it anyway",
-		host, strings.Join(seedLocalHosts, ", "), seedAllowRemoteVariable)
+	for _, target := range targets {
+		if !isLocalSeedHost(target.Host) {
+			return fmt.Errorf("seed refused: the %s database host %q is not local (%s). Set %s=1 to seed it anyway",
+				target.Role, target.Host, strings.Join(seedLocalHosts, ", "), seedAllowRemoteVariable)
+		}
+	}
+	return nil
+}
+
+// openSeedDatabase logs every target, checks them and only then runs migrate and connect, in that order. A
+// refused target returns before either step is called.
+func openSeedDatabase(targets []seedDatabaseTarget, allowRemote string, migrate, connect func() error) error {
+	for _, target := range targets {
+		log.Printf("Seed target (%s): host %q, database %q", target.Role, target.Host, target.Name)
+	}
+	if err := checkSeedTargets(targets, allowRemote); err != nil {
+		return err
+	}
+	if err := migrate(); err != nil {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+	if err := connect(); err != nil {
+		return fmt.Errorf("database connection error: %w", err)
+	}
+	return nil
 }
 
 // runSeed applies migrations, connects and loads the demo data. It exits non-zero when a guard refuses or a
@@ -167,20 +224,12 @@ func runSeed() {
 		log.Fatalf("%v", err)
 	}
 
-	host, name, err := seedTarget(os.Getenv("DATABASE_URL"), os.Getenv("DB_HOST"), os.Getenv("DB_NAME"))
+	targets, err := seedTargets(os.Getenv("DATABASE_URL"), os.Getenv("DB_HOST"), os.Getenv("DB_NAME"))
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	log.Printf("Seed target: host %q, database %q", host, name)
-	if err := checkSeedTarget(host, os.Getenv(seedAllowRemoteVariable)); err != nil {
+	if err := openSeedDatabase(targets, os.Getenv(seedAllowRemoteVariable), database.MigrateUp, database.Connect); err != nil {
 		log.Fatalf("%v", err)
-	}
-
-	if err := database.MigrateUp(); err != nil {
-		log.Fatalf("Migration failed: %v", err)
-	}
-	if err := database.Connect(); err != nil {
-		log.Fatalf("Database connection error: %v", err)
 	}
 
 	summary, err := services.SeedDemo(password, reference)

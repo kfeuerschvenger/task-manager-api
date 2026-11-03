@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -58,6 +59,9 @@ func TestIsLocalSeedHost(t *testing.T) {
 		{" localhost ", true},
 		{"127.0.0.1", true},
 		{"::1", true},
+		{"[::1]", true},
+		{" [::1] ", true},
+		{"[2001:db8::1]", false},
 		{"db", true},
 		{"host.docker.internal", true},
 		{"", false},
@@ -89,6 +93,10 @@ func TestSeedTarget(t *testing.T) {
 		{"an IPv6 host loses its brackets", "postgres://u:secret@[::1]:5432/tm", "", "", "::1", "tm", ""},
 		{"a URL without a path has no database name", "postgres://u:secret@localhost", "", "", "localhost", "", ""},
 		{"an unparsable URL is refused without echoing it", "postgres://u:secret@db:5432/%zz", "", "", "", "", "DATABASE_URL cannot be parsed"},
+		{"a host query parameter is refused", "postgres://u:secret@localhost/x?host=remote.example.com", "", "", "", "", `"host" query parameter`},
+		{"a hostaddr query parameter is refused", "postgres://u:secret@localhost/x?sslmode=disable&hostaddr=10.0.0.5", "", "", "", "", `"hostaddr" query parameter`},
+		{"a service query parameter is refused", "postgres://u:secret@localhost/x?service=prod", "", "", "", "", `"service" query parameter`},
+		{"other query parameters are fine", "postgres://u:secret@localhost/x?sslmode=disable", "", "", "localhost", "x", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,32 +114,102 @@ func TestSeedTarget(t *testing.T) {
 	}
 }
 
-func TestCheckSeedTarget(t *testing.T) {
+func TestSeedTargetsCollectsBothRoles(t *testing.T) {
+	targets, err := seedTargets("postgres://u:secret@migrate.example.com/mdb", "db", "conn")
+
+	assert.NoError(t, err)
+	assert.Equal(t, []seedDatabaseTarget{
+		{Role: "migrations", Host: "migrate.example.com", Name: "mdb"},
+		{Role: "connection", Host: "db", Name: "conn"},
+	}, targets)
+}
+
+func TestSeedTargetsWithoutURLUsesDBHostForBoth(t *testing.T) {
+	targets, err := seedTargets("", "db", "tm")
+
+	assert.NoError(t, err)
+	assert.Equal(t, []seedDatabaseTarget{
+		{Role: "migrations", Host: "db", Name: "tm"},
+		{Role: "connection", Host: "db", Name: "tm"},
+	}, targets)
+}
+
+func TestSeedTargetsRefusesAHostOverride(t *testing.T) {
+	_, err := seedTargets("postgres://u:secret@localhost/x?host=remote.example.com", "localhost", "x")
+
+	assert.ErrorContains(t, err, "seed refused")
+	assert.NotContains(t, err.Error(), "secret")
+}
+
+func TestCheckSeedTargets(t *testing.T) {
 	tests := []struct {
 		name        string
-		host        string
+		databaseURL string
+		dbHost      string
 		allowRemote string
-		wantErr     bool
+		wantRole    string
 	}{
-		{"a local host passes", "localhost", "", false},
-		{"the compose service passes", "db", "", false},
-		{"a remote host is refused", "db.example.com", "", true},
-		{"an empty host is refused", "", "", true},
-		{"a remote host passes with the flag", "db.example.com", "1", false},
-		{"the flag is compared trimmed", "db.example.com", " 1 ", false},
-		{"any other flag value is refused", "db.example.com", "true", true},
-		{"zero does not enable it", "db.example.com", "0", true},
+		{"both local passes", "postgres://u:p@localhost:5432/x", "db", "", ""},
+		{"no URL and a local DB_HOST passes", "", "localhost", "", ""},
+		{"a bracketed IPv6 DB_HOST passes", "", "[::1]", "", ""},
+		{"a local URL with a remote DB_HOST is refused", "postgres://u:p@localhost:5432/x", "db.example.com", "", "connection"},
+		{"a remote URL with a local DB_HOST is refused", "postgres://u:p@remote.example.com:5432/x", "localhost", "", "migrations"},
+		{"no URL and a remote DB_HOST is refused", "", "db.example.com", "", "migrations"},
+		{"an empty DB_HOST is refused", "", "", "", "migrations"},
+		{"the flag overrides a remote DB_HOST", "postgres://u:p@localhost/x", "db.example.com", "1", ""},
+		{"the flag overrides a remote URL", "postgres://u:p@remote.example.com/x", "localhost", "1", ""},
+		{"the flag is compared trimmed", "", "db.example.com", " 1 ", ""},
+		{"any other flag value is refused", "", "db.example.com", "true", "migrations"},
+		{"zero does not enable it", "", "db.example.com", "0", "migrations"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := checkSeedTarget(tt.host, tt.allowRemote)
+			targets, err := seedTargets(tt.databaseURL, tt.dbHost, "x")
+			assert.NoError(t, err)
 
-			if tt.wantErr {
+			err = checkSeedTargets(targets, tt.allowRemote)
+
+			if tt.wantRole != "" {
 				assert.ErrorContains(t, err, "seed refused")
+				assert.ErrorContains(t, err, "the "+tt.wantRole+" database host")
 				assert.ErrorContains(t, err, seedAllowRemoteVariable)
+				assert.NotContains(t, err.Error(), "p@")
 				return
 			}
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestOpenSeedDatabaseChecksTargetsBeforeAnyStep(t *testing.T) {
+	var calls []string
+	migrate := func() error { calls = append(calls, "migrate"); return nil }
+	connect := func() error { calls = append(calls, "connect"); return nil }
+	remote := []seedDatabaseTarget{{Role: "migrations", Host: "db.example.com"}, {Role: "connection", Host: "db"}}
+	local := []seedDatabaseTarget{{Role: "migrations", Host: "localhost"}, {Role: "connection", Host: "db"}}
+
+	err := openSeedDatabase(remote, "", migrate, connect)
+	assert.ErrorContains(t, err, "seed refused")
+	assert.Empty(t, calls)
+
+	err = openSeedDatabase(local, "", migrate, connect)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"migrate", "connect"}, calls)
+
+	calls = nil
+	err = openSeedDatabase(remote, "1", migrate, connect)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"migrate", "connect"}, calls)
+}
+
+func TestOpenSeedDatabaseStopsWhenMigrationFails(t *testing.T) {
+	connected := false
+	local := []seedDatabaseTarget{{Role: "migrations", Host: "localhost"}}
+
+	err := openSeedDatabase(local, "",
+		func() error { return errors.New("boom") },
+		func() error { connected = true; return nil })
+
+	assert.ErrorContains(t, err, "migration failed")
+	assert.False(t, connected)
 }
