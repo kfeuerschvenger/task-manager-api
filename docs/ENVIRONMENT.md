@@ -69,7 +69,7 @@ flowchart TD
 
 **Why the sslmode allowlist excludes `allow` and `prefer`.** PostgreSQL defines both, but migrations run through `golang-migrate` with the `lib/pq` driver, which rejects them, while the GORM pgx driver would accept them. The allowlist is the intersection, so one configuration works for both connections and a value that would only fail halfway through startup is caught first.
 
-`migrate up|down` does not run this validation. The sslmode check still happens while the URL is built from `DB_*`.
+`migrate up|down` does not run this validation. The sslmode check still happens while the URL is built from `DB_*`, which is only when `DATABASE_URL` is unset.
 
 ### DATABASE_URL
 

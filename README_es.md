@@ -19,11 +19,11 @@
   <img src="docs/assets/screens/hero.gif" alt="La interfaz Swagger de la API: inicio de sesión, autorización con el token, creación de una tarea y listado de las tareas de prioridad alta" width="100%">
 </p>
 
-**Task Manager API es una API REST en Go para tareas que tienen un creador, un asignado y, con suerte, una fecha de vencimiento.**
+**Task Manager API es una API REST en Go para tareas que tienen un creador, un asignado y una fecha de vencimiento que, con suerte, alguien cumple.**
 
 Regístrate, inicia sesión y crea tareas que avanzan por `pending`, `in_progress` y `complete`. Si le asignas una tarea a un compañero, la puede ver, pero las llaves las conservas tú: solo el creador edita o elimina.
 
-Es un servicio Go pequeño y por capas sobre PostgreSQL, con autenticación JWT, una interfaz Swagger generada desde el código y una configuración Docker que arranca con dos comandos. La configuración es estricta a propósito: un secreto débil detiene el servidor antes de que prometa lo que no puede cumplir.
+Es un servicio Go pequeño y por capas sobre PostgreSQL, con autenticación JWT, una interfaz Swagger generada desde el código y una configuración Docker que arranca en tres pasos. La configuración es estricta a propósito: un secreto débil detiene el servidor antes de que prometa lo que no puede cumplir.
 
 ## Un recorrido
 
@@ -116,6 +116,7 @@ Solo necesitas Docker en ejecución.
 
 ```bash
 cp .env.example .env
+# edita .env: JWT_SECRET con al menos 32 bytes (openssl rand -base64 32)
 docker compose up --build
 ```
 

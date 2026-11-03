@@ -59,8 +59,8 @@ curl -s -X POST http://localhost:8080/auth/login \
 
 | Field | Type | Rule |
 |---|---|---|
-| `first_name` | string | At least 2 characters after trimming |
-| `last_name` | string | At least 2 characters after trimming |
+| `first_name` | string | At least 2 bytes after trimming |
+| `last_name` | string | At least 2 bytes after trimming |
 | `email` | string | A valid address, stored trimmed and lowercased |
 | `password` | string | At least 8 characters and at most 72 bytes, see [Password policy](#password-policy) |
 

@@ -19,11 +19,11 @@
   <img src="docs/assets/screens/hero.gif" alt="The Swagger UI of the API: signing in, authorizing with the token, creating a task and listing the high priority tasks" width="100%">
 </p>
 
-**Task Manager API is a Go REST API for tasks that have an owner, an assignee and, with luck, a deadline.**
+**Task Manager API is a Go REST API for tasks that have an owner, an assignee and a deadline that, with luck, someone meets.**
 
 Register, sign in, and create tasks that move through `pending`, `in_progress` and `complete`. Give a task to a teammate and they can see it, while you keep the keys: only the creator edits or deletes.
 
-It is a small, layered Go service on PostgreSQL, with JWT authentication, a Swagger UI generated from the code and a Docker setup that starts with two commands. The configuration is strict on purpose: a weak secret stops the server before it can make promises it cannot keep.
+It is a small, layered Go service on PostgreSQL, with JWT authentication, a Swagger UI generated from the code and a Docker setup that starts in three steps. The configuration is strict on purpose: a weak secret stops the server before it can make promises it cannot keep.
 
 ## Take the tour
 
@@ -116,6 +116,7 @@ All you need is Docker, running.
 
 ```bash
 cp .env.example .env
+# edit .env: set JWT_SECRET to at least 32 bytes (openssl rand -base64 32)
 docker compose up --build
 ```
 
