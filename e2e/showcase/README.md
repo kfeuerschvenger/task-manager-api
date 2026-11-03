@@ -16,13 +16,16 @@ flowchart LR
 
 ## Requirements
 
-- A running API with the demo data. Apply the seed with the same environment the API uses, plus the demo password: `DEMO_PASSWORD=<password> go run ./cmd seed`. The seed refuses `APP_ENV=production` and replaces the demo users' tasks with the same set every time. It prints the two demo emails.
+- A running API with the demo data. Apply the seed with the same environment the API uses, plus the demo password and `APP_ENV`: `APP_ENV=development DEMO_PASSWORD=<password> go run ./cmd seed`. The seed only runs when `APP_ENV` is `development`, `dev`, `local` or `test` (any case). An unset or any other value, production included, is refused. It replaces the demo users' tasks with the same set every time, and it aborts without touching anything when a user already holds a demo email under a different id. It prints the two demo emails.
+- The due dates are measured from a fixed reference date, `2026-11-02`, so the data is the same on every run. Set `DEMO_REFERENCE=YYYY-MM-DD` on the seed command to measure from another day, for example when the dates have gone stale. A value that is not a valid date is rejected before the database is opened.
 - Node 22. From this folder: `npm install` and `npx playwright install chromium`.
 - ffmpeg for the GIF and the MP4. Set `FFMPEG` to the executable when it is installed but not on the PATH.
 
 ## Running it
 
 From `e2e/showcase/`, with the same password the demo was seeded with:
+
+In bash:
 
 ```bash
 export DEMO_CREATOR_EMAIL=<creator email printed by the seed>
@@ -33,11 +36,26 @@ node capture.mjs hero
 node gif.mjs
 ```
 
+In PowerShell:
+
+```powershell
+$env:DEMO_CREATOR_EMAIL = "<creator email printed by the seed>"
+$env:DEMO_ASSIGNEE_EMAIL = "<assignee email printed by the seed>"
+$env:DEMO_PASSWORD = "<password>"
+node capture.mjs
+node capture.mjs hero
+node gif.mjs
+```
+
+The seed command takes the same form in PowerShell: `$env:APP_ENV = "development"; $env:DEMO_PASSWORD = "<password>"; go run ./cmd seed`.
+
 `node capture.mjs` takes every still, `node capture.mjs hero` records the flow and `node gif.mjs` converts it. `npm run showcase` runs the three in order. Seed again before a run if anybody has used the demo users since.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `BASE_URL` | `http://localhost:8080` | The API whose Swagger UI is captured |
+| `APP_ENV` | None, required by the seed | Must be `development`, `dev`, `local` or `test` for `go run ./cmd seed` to run |
+| `DEMO_REFERENCE` | `2026-11-02` | Optional, read by the seed. A `YYYY-MM-DD` date the demo due dates are measured from |
+| `BASE_URL` | `http://localhost:8080` | The API whose Swagger UI is captured. The address shown in the browser frame is derived from it |
 | `DEMO_CREATOR_EMAIL` | None, required | The demo user who owns the tasks |
 | `DEMO_ASSIGNEE_EMAIL` | None, required | The demo user the forbidden shot signs in as |
 | `DEMO_PASSWORD` | None, required | The password the demo was seeded with. It is never written in the repository |
@@ -64,8 +82,10 @@ Every still also leaves its unframed screenshot in `out/<slug>.raw.png`, which i
 ## What each shot proves and keeps clean
 
 - Every shot asserts that the demo data is on screen: the filtered list must contain a known seeded title, the 201 body must contain the title that was sent, and the 403 body must carry the API's message.
-- Writes are limited to two flows. `create-task` and the hero each create one task and delete it through the API when they finish, even when they fail. The forbidden request is rejected by the API and changes nothing. No dialog is ever confirmed.
-- A bearer token never reaches an image. The Authorize field shows dots, every `pre` block that would print a token (the curl command, the login response) is rewritten to its first characters before it is painted, and a shot fails when the visible text of the page still holds a full token.
+- Writes are limited to two flows. `create-task` and the hero each create one task and delete it through the API when they finish, even when they fail. The cleanup checks every `DELETE` and lists the tasks again, and a title that is still there fails the run. A cleanup failure is reported on its own `FAIL cleanup` line, never hides the error of the shot, and makes the exit code non-zero.
+- The run removes both created titles before it starts, and again on SIGINT or SIGTERM, so an interrupted run leaves no task behind.
+- The forbidden request is rejected by the API and changes nothing. The shot records its target task first, re-reads it afterwards, and restores it and fails loudly if it changed. No dialog is ever confirmed.
+- A bearer token never reaches an image. The Authorize field shows dots, every `pre` block that would print a token (the curl command, the login response) is rewritten to its first characters before it is painted, and the page is checked after every step that renders a token. The check covers the visible text, every `pre` block and the value of every `input` and `textarea`. The Authorize field holds the token as its raw value while it renders as dots, so a masked field is checked by its rendering (the computed `-webkit-text-security` must be `disc`) and not by its raw value.
 - The hero shows dots where the password goes in the login body. The request that leaves the browser carries the real password, substituted in the network layer, so the password is never on screen.
 - The window is 1600 by 1000. A shot whose exchange is taller grows the window to fit it, so no response is cut. Stills are taken at twice the pixel density.
 - The hero is recorded in the full Chromium build (`channel: 'chromium'`) at a pixel density of 1, because the default headless shell rasterizes in software. The GIF is 20 fps at 1100 pixels wide, under 8 MB, and the MP4 is 25 fps.
@@ -75,4 +95,4 @@ Every still also leaves its unframed screenshot in `out/<slug>.raw.png`, which i
 - Rerun the commands after a change to the API surface or to the Swagger annotations, and commit the images with the change.
 - A new shot is one more entry in `SHOTS` in `capture.mjs`: a slug, a function that brings a fresh page to the state to photograph, and a `cleanup` when it writes.
 - The frame is `frame.html`: the window, the address bar and the background are plain CSS in the project palette.
-- The GIF has a budget of 8 MB. `gif.mjs` fails when it is over, and `WIDTH` and `FPS` at its top, or a shorter flow, are the levers.
+- The GIF has a budget of 8 MB. `gif.mjs` encodes the GIF and the MP4 into `out/` and copies them into `docs/assets/screens/` (or `SHOWCASE_OUT`) only when the GIF is under the budget, so a run that is over leaves the published animation as it was. `WIDTH` and `FPS` at its top, or a shorter flow, are the levers.
