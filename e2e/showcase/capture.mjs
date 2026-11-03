@@ -288,6 +288,29 @@ const installSignalHandlers = () => {
       cleanupOnce();
     });
   }
+  process.on('unhandledRejection', reason => crashExit('unhandledRejection', reason));
+  process.on('uncaughtException', error => crashExit('uncaughtException', error));
+};
+
+/** Set by the first crash. A second crash while the first is cleaning up is only logged. */
+let crashing = false;
+
+/**
+ * A crash (an unhandled rejection or an uncaught exception) owes the same cleanup as a signal. It reuses the
+ * single-flight cleanupOnce, so it never runs twice and never races a signal-triggered cleanup, then exits 1.
+ */
+const crashExit = async (kind, error) => {
+  logError(`FAIL ${kind}  ${firstLine(error)}`);
+  if (process.env.SHOWCASE_DEBUG) logError(fullError(error));
+  if (crashing) return;
+  crashing = true;
+  interrupt.abort();
+  try {
+    for (const failure of await cleanupOnce()) logError(`FAIL cleanup  ${firstLine(failure)}`);
+  } catch (cleanupError) {
+    logError(`FAIL cleanup  ${firstLine(cleanupError)}`);
+  }
+  process.exit(1);
 };
 
 /** Awaits the shared cleanup, reports what it could not undo and exits with the code of the signal. */
@@ -747,9 +770,10 @@ const recordHeroFlow = async (browser, dir) => {
     await beat(page, 500);
     await signIn.locator('textarea.body-param__text').fill(JSON.stringify({ email: CREATOR_EMAIL, password: MASKED_PASSWORD }, null, 2));
     await beat(page, 900);
-    const answered = page.waitForResponse(response => response.url().endsWith('/auth/login'));
-    await press(page, signIn.locator('button.execute'));
-    const loginResponse = await answered;
+    const [loginResponse] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith('/auth/login')),
+      press(page, signIn.locator('button.execute')),
+    ]);
     token = (await loginResponse.json()).token;
     expectStatus(await waitForStatus(signIn), 200);
     await assertClean(page);
