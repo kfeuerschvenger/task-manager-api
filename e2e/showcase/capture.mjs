@@ -8,8 +8,9 @@
 // Nothing here confirms a dialog that writes to the database. Two shots create
 // a task on purpose (create-task and the hero), and both delete what they
 // created through the API when they finish, so the demo data ends as it began.
-// The run purges both titles before it starts and again on SIGINT or SIGTERM,
-// so an interrupted run leaves nothing behind. The forbidden shot is rejected
+// The run checks that the demo users log in and own the seeded tasks, purges
+// both titles before it starts and again on SIGINT, SIGTERM or SIGHUP, so an
+// interrupted run leaves nothing behind. The forbidden shot is rejected
 // by the API and writes nothing, and it re-reads its target afterwards and
 // restores it, loudly, if it changed.
 //
@@ -26,22 +27,29 @@
 //   SLUGS=overview,forbidden node capture.mjs
 //   node capture.mjs hero             the video, for gif.mjs (a slug may also be an argument)
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { copyFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+import { TOKEN_PATTERN, firstLine, fullError, redact } from './redact.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, '..', '..');
 
-const BASE = (process.env.BASE_URL ?? 'http://localhost:8080').replace(/\/$/, '');
 const CREATOR_EMAIL = process.env.DEMO_CREATOR_EMAIL ?? '';
 const ASSIGNEE_EMAIL = process.env.DEMO_ASSIGNEE_EMAIL ?? '';
 const PASSWORD = process.env.DEMO_PASSWORD ?? '';
+const RAW_BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080';
+/** How long one API call may take, in milliseconds. Not a credential, so it has a default. */
+const FETCH_TIMEOUT_MS = Number(process.env.SHOWCASE_FETCH_TIMEOUT_MS ?? 15_000);
 
-const DOCS = `${BASE}/documentation/index.html`;
-/** The address the browser frame shows, derived from BASE_URL: host, port and the documentation path. */
-const ADDRESS = `${new URL(BASE).host}/documentation/`;
+// Set by requireEnvironment, which parses BASE_URL so that an invalid value ends in a FAIL line and not a stack trace.
+/** The API origin plus any path prefix, without a trailing slash. */
+let BASE = '';
+let DOCS = '';
+/** The address the browser frame shows, derived from BASE_URL: host, port, path prefix and the documentation path. */
+let ADDRESS = '';
 const FRAME_FILE = path.join(here, 'frame.html');
 
 /** Framed shots, which are committed. */
@@ -72,23 +80,57 @@ const HERO_TASK = {
   priority: 'high',
   status: 'pending',
 };
-/** A full JWT: header, payload and signature. */
-const TOKEN_PATTERN = /eyJ[\w-]{6,}\.[\w-]+\.[\w-]+/;
+// Everything the script prints goes through redact, so a token or the password cannot reach a log.
+const log = (...parts) => console.log(...parts.map(redact));
+const logError = (...parts) => console.error(...parts.map(redact));
 
-const log = (...parts) => console.log(...parts);
+// -- interruption ---------------------------------------------------------------------------------
+
+const SIGNAL_CODES = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+/** The name of the first signal received, or null. Set by the handler and read by main, which stops on it. */
+let interruptedBy = null;
+const interrupt = new AbortController();
+const isInterrupted = () => interruptedBy !== null;
+
+/** Marks the code that undoes the run's writes. Those calls are not cut short by an interrupt, they finish it. */
+const cleaning = new AsyncLocalStorage();
+
+/** Runs cleanup steps one at a time, so a shot's cleanup and the interrupt's cleanup never run together. */
+let cleanupChain = Promise.resolve();
+const exclusive = step => {
+  const run = cleanupChain.then(() => cleaning.run(true, step));
+  cleanupChain = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+};
 
 // -- the API, used for tokens, for the ids a shot needs and for cleaning up ----------------------
 
 const api = async (route, { method = 'GET', token, body } = {}) => {
-  const response = await fetch(`${BASE}${route}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await response.text();
+  // Every call times out, and a call that is not part of a cleanup also stops on an interrupt.
+  const signals = [AbortSignal.timeout(FETCH_TIMEOUT_MS)];
+  if (!cleaning.getStore()) signals.push(interrupt.signal);
+
+  let response;
+  let text;
+  try {
+    response = await fetch(`${BASE}${route}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.any(signals),
+    });
+    text = await response.text();
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new Error(`${method} ${route} timed out after ${FETCH_TIMEOUT_MS} ms`);
+    if (isInterrupted() && error?.name === 'AbortError') throw new Error(`${method} ${route} stopped: the run was interrupted`);
+    throw error;
+  }
   // A body that is not JSON (a proxy page, an empty error) leaves json null, and the caller checks the status.
   let json = null;
   if (text) {
@@ -118,12 +160,14 @@ const listTasks = async token => {
 
 /**
  * Deletes every task of the token's user with this title, which is how a flow undoes its own write. Every
- * DELETE must answer 2xx, and the list is read again afterwards: a title that is still there fails loudly.
+ * DELETE must answer 2xx or 404 (a task that is already gone is the goal), and the list is read again
+ * afterwards: a title that is still there fails loudly.
  */
 const deleteTasksTitled = async (token, title) => {
   const problems = [];
   for (const task of (await listTasks(token)).filter(item => item.title === title)) {
     const { status } = await api(`/tasks/${task.id}`, { method: 'DELETE', token });
+    if (status === 404) continue;
     if (status < 200 || status >= 300) problems.push(`DELETE /tasks/${task.id} answered ${status}`);
   }
 
@@ -142,10 +186,32 @@ const attempt = async step => {
   }
 };
 
-const firstLine = error => String(error?.message ?? error).split('\n')[0];
+/** True once the demo accounts were checked. Nothing is purged or created before that. */
+let demoVerified = false;
 
-/** Deletes the tasks both flows create. */
+/**
+ * Checks that the two demo users log in and that the creator owns the seeded demo tasks, so the purge only ever
+ * runs against the seeded demo account and never against a user's own tasks.
+ */
+const verifyDemoAccounts = async () => {
+  const seedHint = 'run the seed first: APP_ENV=development DEMO_PASSWORD=<password> go run ./cmd seed';
+  let creatorToken;
+  try {
+    creatorToken = await login(CREATOR_EMAIL);
+    await login(ASSIGNEE_EMAIL);
+  } catch (error) {
+    throw new Error(`the demo users are not usable (${firstLine(error)}): ${seedHint}`);
+  }
+  const owned = await listTasks(creatorToken);
+  if (!owned.some(task => task.title === KNOWN_HIGH_TITLE)) {
+    throw new Error(`${CREATOR_EMAIL} does not own the seeded demo tasks (no task titled "${KNOWN_HIGH_TITLE}"), so nothing was purged or created: ${seedHint}`);
+  }
+  demoVerified = true;
+};
+
+/** Deletes the tasks both flows create. Only ever called once the demo accounts are verified. */
 const purgeCreatedTasks = async () => {
+  if (!demoVerified) throw new Error('refusing to purge before the demo accounts were verified');
   const token = await login(CREATOR_EMAIL);
   for (const { title } of [STILL_TASK, HERO_TASK]) await deleteTasksTitled(token, title);
 };
@@ -182,33 +248,52 @@ const restoreTask = async original => {
 const openBrowsers = new Set();
 const activeRestores = new Set();
 
-/** Every cleanup a run owes, as a list of errors. Used on SIGINT and SIGTERM. */
+/** Every cleanup a run owes, as a list of errors. Used when the run is interrupted. */
 const runAllCleanups = async () => {
   const errors = [];
-  for (const browser of openBrowsers) {
+  for (const browser of [...openBrowsers]) {
     const error = await attempt(() => browser.close());
     if (error) errors.push(error);
   }
-  const purge = await attempt(purgeCreatedTasks);
-  if (purge) errors.push(purge);
-  for (const state of activeRestores) {
+  if (demoVerified) {
+    const purge = await attempt(purgeCreatedTasks);
+    if (purge) errors.push(purge);
+  }
+  for (const state of [...activeRestores]) {
     const error = await attempt(() => restoreTask(state.original));
     if (error) errors.push(error);
   }
   return errors;
 };
 
-let interrupted = false;
+/** The one cleanup of an interrupted run. Every caller gets the same promise, so it runs once. */
+let sharedCleanup = null;
+const cleanupOnce = () => {
+  sharedCleanup ??= exclusive(runAllCleanups);
+  return sharedCleanup;
+};
+
+/**
+ * The signal handler only records the interrupt, stops the calls that are in flight and starts the shared cleanup.
+ * main notices the flag, launches nothing more, awaits the cleanup and exits. A second signal exits at once with
+ * the code of the first.
+ */
 const installSignalHandlers = () => {
-  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
-    process.on(signal, async () => {
-      if (interrupted) return;
-      interrupted = true;
-      console.error(`\n${signal}: undoing what this run wrote before exiting`);
-      for (const error of await runAllCleanups()) console.error(`FAIL cleanup  ${firstLine(error)}`);
-      process.exit(code);
+  for (const [signal, code] of Object.entries(SIGNAL_CODES)) {
+    process.on(signal, () => {
+      if (isInterrupted()) process.exit(SIGNAL_CODES[interruptedBy] ?? code);
+      interruptedBy = signal;
+      logError(`\n${signal}: undoing what this run wrote before exiting`);
+      interrupt.abort();
+      cleanupOnce();
     });
   }
+};
+
+/** Awaits the shared cleanup, reports what it could not undo and exits with the code of the signal. */
+const exitInterrupted = async () => {
+  for (const error of await cleanupOnce()) logError(`FAIL cleanup  ${firstLine(error)}`);
+  process.exit(SIGNAL_CODES[interruptedBy]);
 };
 
 // -- scripts that run inside every page ---------------------------------------------------------
@@ -533,7 +618,7 @@ const takeStill = async (shot, { browser, framePage }) => {
   }
 
   await context?.close().catch(() => {});
-  const cleanupError = await attempt(() => shot.cleanup?.(state));
+  const cleanupError = await attempt(() => exclusive(() => shot.cleanup?.(state)));
 
   if (captureError) {
     if (cleanupError) captureError.cleanupError = cleanupError;
@@ -584,6 +669,14 @@ const scrollTo = async (page, locator, offset = 90) => {
 const MASKED_PASSWORD = '************';
 
 /**
+ * The script owns SIGINT, SIGTERM and SIGHUP. Playwright must not install its own handlers for them, or it would
+ * close the browser and exit while the run still has tasks to undo.
+ */
+const SIGNAL_OPTIONS = { handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false };
+const LAUNCH_OPTIONS = SIGNAL_OPTIONS;
+const LAUNCH_OPTIONS_HERO = { channel: 'chromium', ...SIGNAL_OPTIONS };
+
+/**
  * Records the hero. The browser is closed in every case, and the task the flow creates is deleted afterwards.
  * Errors follow the same contract as takeStill: a failed recording is thrown with `cleanupError` attached when
  * the cleanup failed too, and a cleanup failure after a good recording is returned.
@@ -591,9 +684,13 @@ const MASKED_PASSWORD = '************';
 const recordHero = async () => {
   const dir = path.join(WORK, 'video');
   await rm(dir, { recursive: true, force: true });
+  // A recording and its cut points from an earlier run must never be mistaken for this one's, so a failed
+  // recording leaves nothing for gif.mjs to publish.
+  await rm(path.join(WORK, 'hero.webm'), { force: true });
+  await rm(path.join(WORK, 'hero.json'), { force: true });
 
   let captureError = null;
-  const browser = await chromium.launch({ channel: 'chromium' });
+  const browser = await chromium.launch(LAUNCH_OPTIONS_HERO);
   openBrowsers.add(browser);
   try {
     await recordHeroFlow(browser, dir);
@@ -604,7 +701,7 @@ const recordHero = async () => {
   await browser.close().catch(() => {});
   openBrowsers.delete(browser);
   // A fresh login keeps this working when the flow failed before it had a token.
-  const cleanupError = await attempt(async () => deleteTasksTitled(await login(CREATOR_EMAIL), HERO_TASK.title));
+  const cleanupError = await attempt(() => exclusive(async () => deleteTasksTitled(await login(CREATOR_EMAIL), HERO_TASK.title)));
 
   if (captureError) {
     if (cleanupError) captureError.cleanupError = cleanupError;
@@ -748,6 +845,26 @@ const requireEnvironment = () => {
   if (missing.length > 0) {
     throw new Error(`${missing.join(', ')} not set. They are the two demo users and the password the demo was seeded with (go run ./cmd seed). None has a default.`);
   }
+
+  if (!Number.isInteger(FETCH_TIMEOUT_MS) || FETCH_TIMEOUT_MS <= 0) {
+    throw new Error('SHOWCASE_FETCH_TIMEOUT_MS must be a positive whole number of milliseconds');
+  }
+
+  let url;
+  try {
+    url = new URL(RAW_BASE_URL);
+  } catch {
+    throw new Error('BASE_URL is not a valid URL. Use the form http://localhost:8080, with an optional path prefix.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('BASE_URL must start with http:// or https://');
+  if (url.username !== '' || url.password !== '') throw new Error('BASE_URL must not carry credentials');
+  if (url.search !== '' || url.hash !== '') throw new Error('BASE_URL must not carry a query or a fragment');
+
+  // The path prefix, when the API is served under one, is part of every URL the script builds.
+  const prefix = url.pathname.replace(/\/+$/, '');
+  BASE = `${url.origin}${prefix}`;
+  DOCS = `${BASE}/documentation/index.html`;
+  ADDRESS = `${url.host}${prefix}/documentation/`;
 };
 
 const main = async () => {
@@ -762,11 +879,14 @@ const main = async () => {
     throw new Error(`the browser frame ${FRAME_FILE} is missing: restore frame.html next to capture.mjs`);
   });
 
-  // An earlier run that was killed may have left the tasks the flows create. Remove them before anything else.
   installSignalHandlers();
-  await purgeCreatedTasks();
+  // Nothing is purged or created until the demo users log in and the creator owns the seeded tasks.
+  await verifyDemoAccounts();
+  // An earlier run that was killed may have left the tasks the flows create. Remove them before anything else.
+  await exclusive(purgeCreatedTasks);
+  if (isInterrupted()) return exitInterrupted();
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(LAUNCH_OPTIONS);
   openBrowsers.add(browser);
   const failures = [];
   const cleanupFailures = [];
@@ -777,7 +897,7 @@ const main = async () => {
   const reportCleanup = (slug, error) => {
     log(`FAIL cleanup ${slug}  ${firstLine(error)}`);
     cleanupFailures.push(slug);
-    if (process.env.SHOWCASE_DEBUG) console.error(error);
+    if (process.env.SHOWCASE_DEBUG) logError(fullError(error));
   };
 
   try {
@@ -786,25 +906,27 @@ const main = async () => {
     await framePage.goto(pathToFileURL(FRAME_FILE).href);
 
     for (const shot of stills) {
+      // An interrupt stops the run: no new shot is launched, and the shared cleanup finishes below.
+      if (isInterrupted()) break;
       try {
         const { cleanupError } = await takeStill(shot, { browser, framePage });
         report(shot.slug, true, await kilobytes(path.join(OUT, `${shot.slug}.png`)));
         if (cleanupError) reportCleanup(shot.slug, cleanupError);
       } catch (error) {
         report(shot.slug, false, firstLine(error));
-        if (process.env.SHOWCASE_DEBUG) console.error(error);
+        if (process.env.SHOWCASE_DEBUG) logError(fullError(error));
         if (error.cleanupError) reportCleanup(shot.slug, error.cleanupError);
       }
     }
 
-    if (slugs.includes('hero')) {
+    if (slugs.includes('hero') && !isInterrupted()) {
       try {
         const { cleanupError } = await recordHero();
         report('hero', true, 'recorded, run gif.mjs to convert it');
         if (cleanupError) reportCleanup('hero', cleanupError);
       } catch (error) {
         report('hero', false, firstLine(error));
-        if (process.env.SHOWCASE_DEBUG) console.error(error);
+        if (process.env.SHOWCASE_DEBUG) logError(fullError(error));
         if (error.cleanupError) reportCleanup('hero', error.cleanupError);
       }
     }
@@ -812,6 +934,8 @@ const main = async () => {
     await browser.close().catch(() => {});
     openBrowsers.delete(browser);
   }
+
+  if (isInterrupted()) return exitInterrupted();
 
   if (failures.length > 0 || cleanupFailures.length > 0) {
     if (failures.length > 0) log(`\n${failures.length} capture failure(s): ${failures.join(', ')}`);
@@ -821,7 +945,10 @@ const main = async () => {
   log('\nAll shots captured.');
 };
 
-main().catch(error => {
-  console.error(`FAIL ${error.message}`);
+main().catch(async error => {
+  logError(`FAIL ${firstLine(error)}`);
+  if (process.env.SHOWCASE_DEBUG) logError(fullError(error));
+  // An interrupt that ended main with an error still owes its cleanup and its exit code.
+  if (isInterrupted()) await exitInterrupted();
   process.exit(1);
 });
