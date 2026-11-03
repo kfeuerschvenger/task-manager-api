@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const demoTestPassword = "test12345"
-
 // newDemoSet returns a demo set that belongs to one test: unique emails and a fresh namespace, so its user and
 // task ids collide with nothing, including the real demo rows. Its users and tasks are deleted when the test ends.
 func newDemoSet(t *testing.T) services.DemoSet {
@@ -64,11 +62,11 @@ func snapshotByEmail(t *testing.T, emails []string) ([]models.User, []models.Tas
 func TestSeedDemoIsIdempotent(t *testing.T) {
 	set := newDemoSet(t)
 
-	first, err := services.SeedDemoSet(set, demoTestPassword)
+	first, err := services.SeedDemoSet(set, testPassword)
 	require.NoError(t, err)
 	usersBefore, tasksBefore := demoSnapshot(t, set)
 
-	second, err := services.SeedDemoSet(set, demoTestPassword)
+	second, err := services.SeedDemoSet(set, testPassword)
 	require.NoError(t, err)
 	usersAfter, tasksAfter := demoSnapshot(t, set)
 
@@ -85,7 +83,7 @@ func TestSeedDemoIsIdempotent(t *testing.T) {
 func TestSeedDemoResetsDemoTasksOnly(t *testing.T) {
 	set := newDemoSet(t)
 
-	_, err := services.SeedDemoSet(set, demoTestPassword)
+	_, err := services.SeedDemoSet(set, testPassword)
 	require.NoError(t, err)
 	_, tasks := demoSnapshot(t, set)
 	require.NotEmpty(t, tasks)
@@ -100,7 +98,7 @@ func TestSeedDemoResetsDemoTasksOnly(t *testing.T) {
 	other := newTestUser(t)
 	otherTask := createTestTask(t, other.Token, "low", "pending")
 
-	_, err = services.SeedDemoSet(set, demoTestPassword)
+	_, err = services.SeedDemoSet(set, testPassword)
 	require.NoError(t, err)
 
 	_, after := demoSnapshot(t, set)
@@ -113,25 +111,35 @@ func TestSeedDemoResetsDemoTasksOnly(t *testing.T) {
 func TestSeedDemoUsersCanLogIn(t *testing.T) {
 	set := newDemoSet(t)
 
-	_, err := services.SeedDemoSet(set, demoTestPassword)
+	_, err := services.SeedDemoSet(set, testPassword)
 	require.NoError(t, err)
 
 	for _, email := range []string{set.Creator.Email, set.Assignee.Email} {
-		code, _ := postJSON(t, "/auth/login", map[string]string{"email": email, "password": demoTestPassword})
+		code, _ := postJSON(t, "/auth/login", map[string]string{"email": email, "password": testPassword})
 		assert.Equal(t, http.StatusOK, code, email)
 	}
 }
 
 func TestSeedDemoSetLeavesTheRealDemoAlone(t *testing.T) {
-	realEmails := []string{services.DemoCreatorEmail, services.DemoAssigneeEmail}
-	usersBefore, tasksBefore := snapshotByEmail(t, realEmails)
-
-	_, err := services.SeedDemoSet(newDemoSet(t), demoTestPassword)
+	// The sentinel stands in for the real demo rows: a complete set with its own unique emails and namespace, and
+	// its own cleanup. The real demo may or may not be in this database, so it cannot be the thing under test.
+	sentinel := newDemoSet(t)
+	_, err := services.SeedDemoSet(sentinel, testPassword)
 	require.NoError(t, err)
+	sentinelUsers, sentinelTasks := demoSnapshot(t, sentinel)
+	require.Len(t, sentinelUsers, 2)
+	require.NotEmpty(t, sentinelTasks)
 
-	usersAfter, tasksAfter := snapshotByEmail(t, realEmails)
-	assert.Equal(t, usersBefore, usersAfter)
-	assert.Equal(t, tasksBefore, tasksAfter)
+	// Seed another set, twice so the reset path runs too.
+	other := newDemoSet(t)
+	for range 2 {
+		_, err = services.SeedDemoSet(other, testPassword)
+		require.NoError(t, err)
+	}
+
+	usersAfter, tasksAfter := demoSnapshot(t, sentinel)
+	assert.Equal(t, sentinelUsers, usersAfter)
+	assert.Equal(t, sentinelTasks, tasksAfter)
 }
 
 func TestSeedDemoRefusesAUserWithADifferentID(t *testing.T) {
@@ -149,7 +157,7 @@ func TestSeedDemoRefusesAUserWithADifferentID(t *testing.T) {
 		assert.NoError(t, database.DB.Where("id = ?", stranger.ID).Delete(&models.User{}).Error)
 	})
 
-	summary, err := services.SeedDemoSet(set, demoTestPassword)
+	summary, err := services.SeedDemoSet(set, testPassword)
 
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, services.ErrDemoUserConflict), err.Error())
