@@ -4,14 +4,15 @@
 // The GIF is 20 frames a second at 1100 pixels wide, trimmed to the part of the
 // recording that shows the flow (capture.mjs writes the cut points beside the
 // video). It must stay under 8 MB, which is what the README can carry without
-// slowing the page. The MP4 is 25 frames a second.
+// slowing the page. The MP4 is 25 frames a second. Both are encoded in out/ and
+// copied into the published folder only when the GIF is under the limit.
 //
 // ffmpeg is found through FFMPEG, then the PATH.
 //
 // Usage, from e2e/showcase/: node gif.mjs
 
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,9 +61,11 @@ try {
 
 await mkdir(OUT, { recursive: true });
 
+// Both files are encoded in the work folder. They only replace the ones in OUT after the GIF passed the size
+// check, so a run that fails leaves the published animation as it was.
 const palette = path.join(WORK, 'hero-palette.png');
-const gif = path.join(OUT, 'hero.gif');
-const mp4 = path.join(OUT, 'hero.mp4');
+const gif = path.join(WORK, 'hero.gif');
+const mp4 = path.join(WORK, 'hero.mp4');
 const trim = ['-ss', String(cut.start), '-to', String(cut.end), '-i', video];
 const filters = `fps=${FPS},scale=${WIDTH}:-1:flags=lanczos`;
 
@@ -106,9 +109,19 @@ const size = async file => (await stat(file)).size;
 const megabytes = bytes => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 
 const gifBytes = await size(gif);
-console.log(`OK   hero.gif  ${megabytes(gifBytes)}`);
-console.log(`OK   hero.mp4  ${megabytes(await size(mp4))}`);
+const mp4Bytes = await size(mp4);
 
 if (gifBytes > MAX_GIF_BYTES) {
-  fail(`hero.gif is ${megabytes(gifBytes)}, over the ${megabytes(MAX_GIF_BYTES)} limit. Lower WIDTH or FPS in gif.mjs, or shorten the flow.`);
+  fail(
+    `hero.gif is ${megabytes(gifBytes)}, over the ${megabytes(MAX_GIF_BYTES)} limit, so nothing was published and ${OUT} is unchanged. ` +
+      'Lower WIDTH or FPS in gif.mjs, or shorten the flow.'
+  );
 }
+if (gifBytes === 0 || mp4Bytes === 0) {
+  fail(`ffmpeg wrote an empty file (hero.gif ${gifBytes} bytes, hero.mp4 ${mp4Bytes} bytes), so nothing was published and ${OUT} is unchanged.`);
+}
+
+await copyFile(gif, path.join(OUT, 'hero.gif'));
+await copyFile(mp4, path.join(OUT, 'hero.mp4'));
+console.log(`OK   hero.gif  ${megabytes(gifBytes)}`);
+console.log(`OK   hero.mp4  ${megabytes(mp4Bytes)}`);
