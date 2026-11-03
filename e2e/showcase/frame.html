@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser frame</title>
+    <style>
+      /*
+       * The window a raw screenshot is placed in. The capture script loads this
+       * page, calls window.placeShot(...) with the screenshot as a data URL, and
+       * screenshots the #stage element. Nothing here reads the network.
+       *
+       * The colours are the project palette: ink for text, the Go cyan as the
+       * accent, and the three status hues (pending, in progress, complete) plus
+       * the high priority coral as small touches.
+       */
+      :root {
+        --ink: #0f172a;
+        --cyan: #00add8;
+        --pending: #94a3b8;
+        --progress: #f59e0b;
+        --complete: #22c55e;
+        --coral: #f43f5e;
+        --ground: #f8fafc;
+        --pad: 88px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: #dff3fa;
+      }
+
+      .stage {
+        position: relative;
+        display: inline-block;
+        padding: var(--pad);
+        overflow: hidden;
+        background:
+          radial-gradient(1100px 700px at 10% 6%, rgb(255 255 255 / 0.9), transparent 60%),
+          radial-gradient(900px 600px at 96% 100%, rgb(0 173 216 / 0.45), transparent 65%),
+          linear-gradient(135deg, #ecf9fd 0%, #c4ebf7 50%, #86d4ea 100%);
+      }
+
+      /* Soft strokes behind the window, drawn in the palette. */
+      .strokes {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .window {
+        position: relative;
+        overflow: hidden;
+        border-radius: 14px;
+        background: var(--ground);
+        box-shadow:
+          0 0 0 1px rgb(15 23 42 / 0.12),
+          0 2px 6px rgb(15 23 42 / 0.08),
+          0 30px 60px -18px rgb(2 60 90 / 0.45),
+          0 60px 120px -30px rgb(2 40 70 / 0.35);
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: 46px;
+        padding: 0 18px;
+        background: linear-gradient(#f8fafc, #eef2f6);
+        border-bottom: 1px solid rgb(15 23 42 / 0.1);
+      }
+
+      .dots {
+        display: flex;
+        gap: 9px;
+      }
+
+      .dots i {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: #cbd5e1;
+        box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.12);
+      }
+
+      .address {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        /* The same width as the dots, so the address sits in the middle of the bar. */
+        margin-right: 61px;
+      }
+
+      .address span {
+        min-width: 360px;
+        max-width: 560px;
+        padding: 5px 16px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: rgb(15 23 42 / 0.06);
+        color: #475569;
+        font: 500 13px/1.3 'Segoe UI', system-ui, sans-serif;
+        letter-spacing: 0.01em;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .window img {
+        display: block;
+        width: var(--shot-width, 1600px);
+        height: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage" id="stage">
+      <svg class="strokes" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
+        <g fill="none" stroke-linecap="round">
+          <path d="M-20 90C140 40 300 140 470 90S800 40 1030 110" stroke="#ffffff" stroke-width="3" opacity="0.6" />
+          <path d="M-20 170C150 130 330 210 500 170S820 130 1030 190" stroke="#00add8" stroke-width="2.5" opacity="0.35" />
+          <path d="M-20 560C170 520 330 610 520 565S830 520 1030 590" stroke="#0f172a" stroke-width="2.5" opacity="0.12" />
+          <path d="M-20 630C180 600 340 670 540 635S840 600 1030 650" stroke="#ffffff" stroke-width="3.5" opacity="0.55" />
+        </g>
+      </svg>
+      <div class="window">
+        <div class="bar">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <div class="address"><span id="address"></span></div>
+        </div>
+        <img id="shot" alt="" />
+      </div>
+    </div>
+    <script>
+      /**
+       * Puts a screenshot in the window.
+       *
+       * @param {{ src: string, width: number, address: string }} shot The image as a data URL, the width in CSS pixels it was taken at, and the text of the address bar.
+       */
+      window.placeShot = async ({ src, width, address }) => {
+        document.documentElement.style.setProperty('--shot-width', `${width}px`);
+        if (!address) throw new Error('placeShot needs the address to show');
+        document.getElementById('address').textContent = address;
+
+        const image = document.getElementById('shot');
+        image.src = src;
+        await image.decode();
+      };
+    </script>
+  </body>
+</html>

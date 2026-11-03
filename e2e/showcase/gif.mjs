@@ -1,0 +1,178 @@
+// Converts the video that `node capture.mjs hero` records into the README's
+// animation: a GIF built with a two pass palette, and an MP4.
+//
+// The GIF is 20 frames a second at 1100 pixels wide, trimmed to the part of the
+// recording that shows the flow (capture.mjs writes the cut points beside the
+// video). It must stay under 8 MB, which is what the README can carry without
+// slowing the page. The MP4 is 25 frames a second. Both are encoded in out/ and
+// copied into the published folder only when the GIF is under the limit.
+//
+// ffmpeg is found through FFMPEG, then the PATH.
+//
+// Usage, from e2e/showcase/: node gif.mjs
+
+import { spawnSync } from 'node:child_process';
+import { copyFile, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const WORK = path.join(here, 'out');
+const OUT = process.env.SHOWCASE_OUT
+  ? path.resolve(process.env.SHOWCASE_OUT)
+  : path.resolve(here, '..', '..', 'docs', 'assets', 'screens');
+
+const FPS = 20;
+const WIDTH = 1100;
+const MAX_GIF_BYTES = 8 * 1024 * 1024;
+
+const fail = message => {
+  console.error(`FAIL ${message}`);
+  process.exit(1);
+};
+
+const ffmpeg = process.env.FFMPEG || 'ffmpeg';
+
+const probe = spawnSync(ffmpeg, ['-version'], { encoding: 'utf8' });
+if (probe.error || probe.status !== 0) {
+  fail(
+    `ffmpeg was not found (tried "${ffmpeg}"). Install it (winget install Gyan.FFmpeg, brew install ffmpeg or apt install ffmpeg) ` +
+      'and open a new terminal, or point FFMPEG at the executable.'
+  );
+}
+
+/** Runs ffmpeg and stops with its last lines when it fails. */
+const run = (label, args) => {
+  const result = spawnSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', ...args], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    fail(`ffmpeg failed while ${label}:\n${(result.stderr || result.stdout || '').trim().split('\n').slice(-8).join('\n')}`);
+  }
+};
+
+const video = path.join(WORK, 'hero.webm');
+let cut;
+
+try {
+  await stat(video);
+  cut = JSON.parse(await readFile(path.join(WORK, 'hero.json'), 'utf8'));
+} catch {
+  fail(`No recording at ${video}. Record it first: node capture.mjs hero`);
+}
+
+// The cut points come from a file, so they are checked before ffmpeg sees them.
+const { start, end } = cut ?? {};
+if (!Number.isFinite(start) || !Number.isFinite(end)) {
+  fail(`hero.json must hold numeric "start" and "end" seconds, found start=${JSON.stringify(start)} end=${JSON.stringify(end)}. Record the hero again: node capture.mjs hero`);
+}
+if (start < 0 || end <= start) {
+  fail(`hero.json has an invalid cut (start ${start}, end ${end}): start must be 0 or more and end must be after start. Record the hero again: node capture.mjs hero`);
+}
+
+await mkdir(OUT, { recursive: true });
+
+// Both files are encoded in the work folder. They only replace the ones in OUT after the GIF passed the size
+// check, so a run that fails leaves the published animation as it was.
+const palette = path.join(WORK, 'hero-palette.png');
+const gif = path.join(WORK, 'hero.gif');
+const mp4 = path.join(WORK, 'hero.mp4');
+const trim = ['-ss', String(cut.start), '-to', String(cut.end), '-i', video];
+const filters = `fps=${FPS},scale=${WIDTH}:-1:flags=lanczos`;
+
+// Pass one reads the whole clip and picks the 256 colours that suit it. The
+// diff statistics weight the colours of what moves over the static page.
+run('building the palette', [...trim, '-vf', `${filters},palettegen=stats_mode=diff`, palette]);
+
+// Pass two draws every frame with that palette. Swagger UI is flat colour and
+// text, so ordered dithering at its coarsest pattern is enough and compresses
+// far better than error diffusion.
+run('encoding the GIF', [
+  ...trim,
+  '-i',
+  palette,
+  '-lavfi',
+  `${filters} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
+  '-loop',
+  '0',
+  gif,
+]);
+
+run('encoding the MP4', [
+  ...trim,
+  '-vf',
+  'fps=25,scale=1440:-2:flags=lanczos',
+  '-c:v',
+  'libx264',
+  '-crf',
+  '24',
+  '-preset',
+  'slow',
+  '-pix_fmt',
+  'yuv420p',
+  '-movflags',
+  '+faststart',
+  '-an',
+  mp4,
+]);
+
+const size = async file => (await stat(file)).size;
+const megabytes = bytes => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+
+const gifBytes = await size(gif);
+const mp4Bytes = await size(mp4);
+
+if (gifBytes > MAX_GIF_BYTES) {
+  fail(
+    `hero.gif is ${megabytes(gifBytes)}, over the ${megabytes(MAX_GIF_BYTES)} limit, so nothing was published and ${OUT} is unchanged. ` +
+      'Lower WIDTH or FPS in gif.mjs, or shorten the flow.'
+  );
+}
+if (gifBytes === 0 || mp4Bytes === 0) {
+  fail(`ffmpeg wrote an empty file (hero.gif ${gifBytes} bytes, hero.mp4 ${mp4Bytes} bytes), so nothing was published and ${OUT} is unchanged.`);
+}
+
+/**
+ * Publishes the GIF and the MP4 as a pair. Both are copied to temporary names in the destination folder first, and
+ * only then renamed over the published files. If any step fails, the temporaries are removed and a file that was
+ * already replaced is put back, so the published pair is never half updated.
+ */
+const publishPair = async pairs => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const items = pairs.map(([from, to]) => ({ from, to, temp: `${to}.tmp-${stamp}`, backup: `${to}.bak-${stamp}`, hadBackup: false, replaced: false }));
+  try {
+    for (const item of items) await copyFile(item.from, item.temp);
+    for (const item of items) {
+      try {
+        await copyFile(item.to, item.backup);
+        item.hadBackup = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    for (const item of items) {
+      await rename(item.temp, item.to);
+      item.replaced = true;
+    }
+  } catch (error) {
+    for (const item of items) {
+      if (item.replaced) {
+        if (item.hadBackup) await rename(item.backup, item.to).catch(() => {});
+        else await rm(item.to, { force: true }).catch(() => {});
+      }
+      await rm(item.temp, { force: true }).catch(() => {});
+      await rm(item.backup, { force: true }).catch(() => {});
+    }
+    throw error;
+  }
+  for (const item of items) await rm(item.backup, { force: true }).catch(() => {});
+};
+
+try {
+  await publishPair([
+    [gif, path.join(OUT, 'hero.gif')],
+    [mp4, path.join(OUT, 'hero.mp4')],
+  ]);
+} catch (error) {
+  fail(`publishing failed (${error.message}), so ${OUT} is unchanged.`);
+}
+console.log(`OK   hero.gif  ${megabytes(gifBytes)}`);
+console.log(`OK   hero.mp4  ${megabytes(mp4Bytes)}`);

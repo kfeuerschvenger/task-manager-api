@@ -16,6 +16,9 @@ import (
 	"github.com/kfeuerschvenger/task-manager-api/routes"
 )
 
+// testPassword is a test fixture that satisfies the password policy. It is not a credential.
+const testPassword = "test12345"
+
 // Router is the shared HTTP router for all tests.
 var Router *mux.Router
 
@@ -57,7 +60,7 @@ func uniqueEmail(prefix string) string {
 // Every call creates an isolated user, so tests never share tasks and can run against a persisted database.
 func newTestUser(t *testing.T) testUser {
 	t.Helper()
-	const password = "test12345"
+	const password = testPassword
 	email := uniqueEmail("user")
 
 	registerBody := map[string]string{
