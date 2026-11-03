@@ -19,7 +19,7 @@ services:
       retries: 10
 
   test:
-    image: golang:1.24.3-alpine
+    image: golang:1.25.14-alpine
     working_dir: /app
     volumes:
       - .:/app
