@@ -1,0 +1,49 @@
+# Task Manager API architecture, light variant.
+# Render from this folder:
+#   d2 --layout elk --theme 0 --pad 40 architecture.d2 architecture.svg
+#   d2 --layout elk --theme 200 --pad 40 architecture-dark.d2 architecture-dark.svg
+# The colours come from the project palette: ink, Go cyan, and the three status hues plus the error coral.
+# architecture-dark.d2 imports this file and swaps the classes for dark tones.
+
+direction: right
+
+classes: {
+  cyan: {style: {fill: "#D6F3FA"; stroke: "#00ADD8"; font-color: "#0F172A"; border-radius: 10; stroke-width: 2}}
+  slate: {style: {fill: "#F1F5F9"; stroke: "#94A3B8"; font-color: "#0F172A"; border-radius: 10; stroke-width: 2}}
+  amber: {style: {fill: "#FEF3C7"; stroke: "#F59E0B"; font-color: "#0F172A"; border-radius: 10; stroke-width: 2}}
+  green: {style: {fill: "#DCFCE7"; stroke: "#22C55E"; font-color: "#0F172A"; stroke-width: 2}}
+  coral: {style: {fill: "#FFE4E8"; stroke: "#F43F5E"; font-color: "#0F172A"; border-radius: 10; stroke-width: 2}}
+  group-cyan: {style: {fill: "#F2FBFE"; stroke: "#00ADD8"; font-color: "#0F172A"; border-radius: 16; stroke-dash: 4; bold: true}}
+  group-slate: {style: {fill: "#F8FAFC"; stroke: "#94A3B8"; font-color: "#0F172A"; border-radius: 16; stroke-dash: 4; bold: true}}
+  flow: {style: {stroke: "#0092B8"; font-color: "#0F172A"; stroke-width: 2}}
+  side: {style: {stroke: "#94A3B8"; font-color: "#0F172A"; stroke-width: 2; stroke-dash: 5}}
+}
+
+client: "Callers" {
+  class: group-slate
+  caller: "curl, a script,\nanother service" {class: slate}
+  browser: "Browser" {class: slate}
+}
+
+api: "task-manager-api" {
+  class: group-cyan
+  limit: "LimitBody\n1 MiB cap" {class: amber}
+  router: "gorilla/mux\nrouter" {class: cyan}
+  auth: "AuthMiddleware\nJWT, /tasks" {class: amber}
+  controllers: "controllers\nstatus mapping" {class: cyan}
+  services: "services\nrules, GORM" {class: cyan}
+  docs: "Swagger UI\n/documentation/" {class: slate}
+}
+
+db: "PostgreSQL 16" {shape: cylinder; class: green}
+
+migrate: "golang-migrate\nat startup" {class: coral}
+
+client.caller -> api.limit: "HTTP" {class: flow}
+client.browser -> api.docs {class: side}
+api.limit -> api.router {class: flow}
+api.router -> api.auth {class: flow}
+api.auth -> api.controllers {class: flow}
+api.controllers -> api.services {class: flow}
+api.services -> db: "GORM" {class: flow}
+migrate -> db: "schema up" {class: side}

@@ -20,14 +20,16 @@ import (
 // @Produce  json
 // @Param   input body dto.CreateTaskInput true "Task details"
 // @Success 201 {object} dto.TaskResponse
-// @Failure 400 {object} dto.ErrorResponse "Invalid input or missing required fields"
+// @Failure 400 {object} dto.ErrorResponse "Invalid input, missing required fields, or assignee does not exist"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func CreateTask(w http.ResponseWriter, r *http.Request) {
 	var input dto.CreateTaskInput
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid JSON")
+		writeDecodeError(w, err, "Invalid JSON")
 		return
 	}
 
@@ -50,17 +52,17 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := services.CreateTask(input, creatorID)
 	if err != nil {
-		utils.Error(w, http.StatusInternalServerError, "Failed to create task")
+		writeError(w, err, "Failed to create task")
 		return
 	}
 
 	resp := dto.TaskResponse{
-    ID:          task.ID.String(),
-    Title:       task.Title,
-    Description: task.Description,
-    DueDate:     task.DueDate,
-    Status:      task.Status,
-    Priority:    task.Priority,
+		ID:          task.ID.String(),
+		Title:       task.Title,
+		Description: task.Description,
+		DueDate:     task.DueDate,
+		Status:      task.Status,
+		Priority:    task.Priority,
 	}
 	utils.JSON(w, http.StatusCreated, resp)
 }
@@ -75,6 +77,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 // @Param   status query string false "Filter by task status (pending, in_progress, complete)"
 // @Param   priority query string false "Filter by task priority (low, medium, high)"
 // @Success 200 {array} dto.TaskResponse
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func GetTasks(w http.ResponseWriter, r *http.Request) {
@@ -93,50 +96,51 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	// Map models to response DTOs
 	var resp []dto.TaskResponse
 	for _, t := range tasks {
-			resp = append(resp, dto.TaskResponse{
-					ID:          t.ID.String(),
-					Title:       t.Title,
-					Description: t.Description,
-					DueDate:     t.DueDate,
-					Status:      t.Status,
-					Priority:    t.Priority,
-			})
+		resp = append(resp, dto.TaskResponse{
+			ID:          t.ID.String(),
+			Title:       t.Title,
+			Description: t.Description,
+			DueDate:     t.DueDate,
+			Status:      t.Status,
+			Priority:    t.Priority,
+		})
 	}
 	utils.JSON(w, http.StatusOK, resp)
 }
 
 // GetTaskByID godoc
-// @Summary Obtiene una tarea por ID
-// @Description Obtiene una tarea específica por su ID
+// @Summary Get a task by ID
+// @Description Retrieves a single task by its ID.
 // @Router /tasks/{id} [get]
 // @Tags tasks
-// @Param id path string true "ID de la tarea"
+// @Accept  json
+// @Produce  json
+// @Param   id path string true "Task ID"
 // @Success 200 {object} dto.TaskResponse
-// @Failure 404 {object} dto.ErrorResponse
+// @Failure 400 {object} dto.ErrorResponse "Invalid task ID"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func GetTaskByID(w http.ResponseWriter, r *http.Request) {
-    userID := r.Context().Value(middleware.UserIDKey).(string)
-    taskID := mux.Vars(r)["id"]
+	userID := r.Context().Value(middleware.UserIDKey).(string)
+	taskID := mux.Vars(r)["id"]
 
-    task, err := services.GetTaskByID(taskID, userID)
-    if err != nil {
-        if err.Error() == "task not found" {
-            utils.Error(w, http.StatusNotFound, "Task not found")
-        } else {
-            utils.Error(w, http.StatusInternalServerError, "Failed to retrieve task")
-        }
-        return
-    }
+	task, err := services.GetTaskByID(taskID, userID)
+	if err != nil {
+		writeError(w, err, "Failed to retrieve task")
+		return
+	}
 
-    resp := dto.TaskResponse{
-        ID:          task.ID.String(),
-        Title:       task.Title,
-        Description: task.Description,
-        DueDate:     task.DueDate,
-        Status:      task.Status,
-        Priority:    task.Priority,
-    }
-    utils.JSON(w, http.StatusOK, resp)
+	resp := dto.TaskResponse{
+		ID:          task.ID.String(),
+		Title:       task.Title,
+		Description: task.Description,
+		DueDate:     task.DueDate,
+		Status:      task.Status,
+		Priority:    task.Priority,
+	}
+	utils.JSON(w, http.StatusOK, resp)
 }
 
 // UpdateTask godoc
@@ -149,9 +153,12 @@ func GetTaskByID(w http.ResponseWriter, r *http.Request) {
 // @Param   id path string true "Task ID"
 // @Param   input body dto.UpdateTaskDTO true "Updated task details"
 // @Success 200 {object} dto.TaskResponse
-// @Failure 400 {object} dto.ErrorResponse "Invalid input or missing required fields"
-// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 400 {object} dto.ErrorResponse "Invalid request body, task ID, or field value"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to update this task"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
+// @Failure 500 {object} dto.ErrorResponse "Task update failed"
 // @Security BearerAuth
 func UpdateTask(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(string)
@@ -159,26 +166,18 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 
 	var updateData dto.UpdateTaskDTO
 	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid request body")
+		writeDecodeError(w, err, "Invalid request body")
 		return
 	}
 
 	task, err := services.UpdateTask(taskID, userID, updateData)
 	if err != nil {
-		if err.Error() == "unauthorized" {
-			utils.Error(w, http.StatusForbidden, "You are not the creator of this task")
-			return
-		}
-		if err.Error() == "task not found" {
-			utils.Error(w, http.StatusNotFound, "Task not found")
-			return
-		}
-		utils.Error(w, http.StatusBadRequest, err.Error())
+		writeError(w, err, "Task update failed")
 		return
 	}
 	if task == nil {
-    utils.Error(w, http.StatusInternalServerError, "Task update failed")
-    return
+		utils.Error(w, http.StatusInternalServerError, "Task update failed")
+		return
 	}
 
 	// Map to response DTO
@@ -199,9 +198,12 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 // @Router /tasks/{id} [delete]
 // @Tags tasks
 // @Param   id path string true "Task ID"
-// @Success 204 {object} nil
-// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Success 204 "Task deleted, no content"
+// @Failure 400 {object} dto.ErrorResponse "Invalid task ID"
+// @Failure 401 {object} dto.ErrorResponse "Missing or invalid token"
 // @Failure 403 {object} dto.ErrorResponse "Unauthorized to delete this task"
+// @Failure 404 {object} dto.ErrorResponse "Task not found"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 // @Security BearerAuth
 func DeleteTask(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(string)
@@ -209,14 +211,7 @@ func DeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	err := services.DeleteTask(taskID, userID)
 	if err != nil {
-		switch err.Error() {
-		case "task not found":
-			utils.Error(w, http.StatusNotFound, "Task not found")
-		case "unauthorized":
-			utils.Error(w, http.StatusForbidden, "You are not authorized to delete this task")
-		default:
-			utils.Error(w, http.StatusInternalServerError, "Error deleting task")
-		}
+		writeError(w, err, "Error deleting task")
 		return
 	}
 

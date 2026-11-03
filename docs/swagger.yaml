@@ -51,6 +51,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       password:
         example: SecurePassword123
@@ -63,6 +64,7 @@ definitions:
     properties:
       email:
         example: user@example.com
+        format: email
         type: string
       first_name:
         example: John
@@ -71,8 +73,9 @@ definitions:
         example: Doe
         type: string
       password:
+        description: At least 8 characters and at most 72 bytes (a bcrypt limit).
         example: SecurePassword123
-        minLength: 6
+        minLength: 8
         type: string
     required:
     - email
@@ -133,8 +136,8 @@ definitions:
 host: localhost:8080
 info:
   contact:
-    url: https://feuerschvenger.com/
     name: Kevin Feuerschvenger
+    url: https://feuerschvenger.com/
   description: RESTful API for collaborative task management with JWT authentication.
   license:
     name: MIT
@@ -164,17 +167,21 @@ paths:
               type: string
             type: object
         "400":
-          description: Bad Request
+          description: Invalid input or validation error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
         "401":
-          description: Unauthorized
+          description: Invalid credentials
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
       summary: User Login
       tags:
       - auth
@@ -183,6 +190,8 @@ paths:
       consumes:
       - application/json
       description: Creates a new user account with the provided registration details.
+        The password must be at least 8 characters and at most 72 bytes (a bcrypt
+        limit).
       parameters:
       - description: Registration details
         in: body
@@ -200,11 +209,21 @@ paths:
               type: string
             type: object
         "400":
-          description: Bad Request
+          description: Invalid input or validation error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/dto.ErrorResponse'
+        "409":
+          description: Email already registered
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
       summary: New User Registration
       tags:
       - auth
@@ -247,6 +266,10 @@ paths:
             items:
               $ref: '#/definitions/dto.TaskResponse'
             type: array
+        "401":
+          description: Missing or invalid token
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "500":
           description: Internal server error
           schema:
@@ -275,7 +298,16 @@ paths:
           schema:
             $ref: '#/definitions/dto.TaskResponse'
         "400":
-          description: Invalid input or missing required fields
+          description: Invalid input, missing required fields, or assignee does not
+            exist
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Missing or invalid token
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "500":
@@ -297,10 +329,16 @@ paths:
         required: true
         type: string
       responses:
-        "200":
-          description: Task deleted successfully
+        "204":
+          description: Task deleted, no content
+        "400":
+          description: Invalid task ID
           schema:
-            type: string
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Missing or invalid token
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
         "403":
           description: Unauthorized to delete this task
           schema:
@@ -309,9 +347,51 @@ paths:
           description: Task not found
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Delete a task
+      tags:
+      - tasks
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a single task by its ID.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.TaskResponse'
+        "400":
+          description: Invalid task ID
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Missing or invalid token
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Task not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a task by ID
       tags:
       - tasks
     put:
@@ -338,7 +418,11 @@ paths:
           schema:
             $ref: '#/definitions/dto.TaskResponse'
         "400":
-          description: Invalid input or missing required fields
+          description: Invalid request body, task ID, or field value
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "401":
+          description: Missing or invalid token
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
         "403":
@@ -347,6 +431,14 @@ paths:
             $ref: '#/definitions/dto.ErrorResponse'
         "404":
           description: Task not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "413":
+          description: Request body too large (limit 1 MiB)
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Task update failed
           schema:
             $ref: '#/definitions/dto.ErrorResponse'
       security:

@@ -16,12 +16,12 @@ func SetupRoutes() *mux.Router {
 	router.HandleFunc("/ping", controllers.Ping).Methods("GET")
 	router.HandleFunc("/auth/register", controllers.Register).Methods("POST")
 	router.HandleFunc("/auth/login", controllers.Login).Methods("POST")
-	
+
 	// Swagger documentation route
 	router.PathPrefix("/documentation/").Handler(httpSwagger.Handler(
-    httpSwagger.InstanceName("swagger"),
+		httpSwagger.InstanceName("swagger"),
 		httpSwagger.DocExpansion("none"),
-    httpSwagger.DefaultModelsExpandDepth(-1),
+		httpSwagger.DefaultModelsExpandDepth(-1),
 	))
 
 	// Protected routes

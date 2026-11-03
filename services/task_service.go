@@ -1,6 +1,7 @@
 package services
 
 import (
+	stderrors "errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -8,7 +9,46 @@ import (
 	"github.com/kfeuerschvenger/task-manager-api/dto"
 	"github.com/kfeuerschvenger/task-manager-api/errors"
 	"github.com/kfeuerschvenger/task-manager-api/models"
+	"gorm.io/gorm"
 )
+
+var (
+	validPriorities = map[string]bool{"low": true, "medium": true, "high": true}
+	validStatuses   = map[string]bool{"pending": true, "in_progress": true, "complete": true}
+)
+
+// validateTaskEnums rejects priority and status values the database CHECK constraints would refuse.
+// Empty values are allowed and mean "not provided".
+func validateTaskEnums(priority, status string) error {
+	if priority != "" && !validPriorities[priority] {
+		return errors.ErrInvalidField("priority")
+	}
+	if status != "" && !validStatuses[status] {
+		return errors.ErrInvalidField("status")
+	}
+	return nil
+}
+
+// ensureUserExists returns a validation error when no user has the given ID.
+func ensureUserExists(id uuid.UUID, label string) error {
+	var count int64
+	if err := database.DB.Model(&models.User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+		return errors.WrapInternalServerError("error checking "+label, err)
+	}
+	if count == 0 {
+		return errors.NewValidationError(label + " does not exist")
+	}
+	return nil
+}
+
+// parseTaskID parses a task ID, returning a validation error when it is not a UUID.
+func parseTaskID(taskID string) (uuid.UUID, error) {
+	id, err := uuid.Parse(taskID)
+	if err != nil {
+		return uuid.Nil, errors.ErrInvalidID("task")
+	}
+	return id, nil
+}
 
 func CreateTask(input dto.CreateTaskInput, creatorID string) (models.Task, error) {
 	creatorUUID, err := uuid.Parse(creatorID)
@@ -19,6 +59,14 @@ func CreateTask(input dto.CreateTaskInput, creatorID string) (models.Task, error
 	assigneeUUID, err := uuid.Parse(input.AssigneeID)
 	if err != nil {
 		return models.Task{}, errors.ErrInvalidID("assignee")
+	}
+
+	if err := validateTaskEnums(input.Priority, input.Status); err != nil {
+		return models.Task{}, err
+	}
+
+	if err := ensureUserExists(assigneeUUID, "assignee"); err != nil {
+		return models.Task{}, err
 	}
 
 	task := models.Task{
@@ -34,8 +82,10 @@ func CreateTask(input dto.CreateTaskInput, creatorID string) (models.Task, error
 		UpdatedAt:   time.Now(),
 	}
 
-	err = database.DB.Create(&task).Error
-	return task, err
+	if err := database.DB.Create(&task).Error; err != nil {
+		return models.Task{}, errors.WrapInternalServerError("error creating task", err)
+	}
+	return task, nil
 }
 
 func GetTasks(userID, status, priority string) ([]models.Task, error) {
@@ -63,8 +113,16 @@ func GetTaskByID(taskID string, userID string) (*models.Task, error) {
 		return nil, errors.ErrInvalidID("user")
 	}
 
-	if err := database.DB.Where("id = ? AND (creator_id = ? OR assignee_id = ?)", taskID, userUUID, userUUID).First(&task).Error; err != nil {
-		return nil, errors.ErrNotFound("task")
+	taskUUID, err := parseTaskID(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := database.DB.Where("id = ? AND (creator_id = ? OR assignee_id = ?)", taskUUID, userUUID, userUUID).First(&task).Error; err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.ErrNotFound("task")
+		}
+		return nil, errors.WrapInternalServerError("error retrieving task", err)
 	}
 
 	return &task, nil
@@ -73,9 +131,17 @@ func GetTaskByID(taskID string, userID string) (*models.Task, error) {
 func UpdateTask(taskID string, userID string, dto dto.UpdateTaskDTO) (*models.Task, error) {
 	var task models.Task
 
+	taskUUID, err := parseTaskID(taskID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Find the task by ID
-	if err := database.DB.First(&task, "id = ?", taskID).Error; err != nil {
-		return nil, errors.ErrNotFound("task")
+	if err := database.DB.First(&task, "id = ?", taskUUID).Error; err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.ErrNotFound("task")
+		}
+		return nil, errors.WrapInternalServerError("error retrieving task", err)
 	}
 
 	// Validate if the user is authorized to update the task
@@ -88,9 +154,13 @@ func UpdateTask(taskID string, userID string, dto dto.UpdateTaskDTO) (*models.Ta
 		return nil, errors.ErrUnauthorizedAction("update", "task")
 	}
 
-	// Aply updates from the DTO
+	if err := validateTaskEnums(dto.Priority, dto.Status); err != nil {
+		return nil, err
+	}
+
+	// Apply updates from the DTO
 	if dto.Status != "" {
-    task.Status = dto.Status
+		task.Status = dto.Status
 	}
 	if dto.Priority != "" {
 		task.Priority = dto.Priority
@@ -110,13 +180,16 @@ func UpdateTask(taskID string, userID string, dto dto.UpdateTaskDTO) (*models.Ta
 		if err != nil {
 			return nil, errors.ErrInvalidID("assignee")
 		}
+		if err := ensureUserExists(assigneeUUID, "assignee"); err != nil {
+			return nil, err
+		}
 		task.AssigneeID = assigneeUUID
 	}
 
 	task.UpdatedAt = time.Now()
 
 	if err := database.DB.Save(&task).Error; err != nil {
-		return nil, err
+		return nil, errors.WrapInternalServerError("error updating task", err)
 	}
 
 	return &task, nil
@@ -125,9 +198,17 @@ func UpdateTask(taskID string, userID string, dto dto.UpdateTaskDTO) (*models.Ta
 func DeleteTask(taskID string, userID string) error {
 	var task models.Task
 
+	taskUUID, err := parseTaskID(taskID)
+	if err != nil {
+		return err
+	}
+
 	// Find the task by ID
-	if err := database.DB.First(&task, "id = ?", taskID).Error; err != nil {
-		return errors.ErrNotFound("task")
+	if err := database.DB.First(&task, "id = ?", taskUUID).Error; err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.ErrNotFound("task")
+		}
+		return errors.WrapInternalServerError("error retrieving task", err)
 	}
 
 	// Validate if the user is authorized to delete the task
@@ -142,7 +223,7 @@ func DeleteTask(taskID string, userID string) error {
 
 	// Delete the task
 	if err := database.DB.Delete(&task).Error; err != nil {
-		return err
+		return errors.WrapInternalServerError("error deleting task", err)
 	}
 
 	return nil

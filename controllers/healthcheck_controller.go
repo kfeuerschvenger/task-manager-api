@@ -15,5 +15,5 @@ import (
 // @Produce  plain
 // @Success 200 {string} string "Pong"
 func Ping(w http.ResponseWriter, r *http.Request) {
-    utils.PlainText(w, http.StatusOK, "Pong")
+	utils.PlainText(w, http.StatusOK, "Pong")
 }

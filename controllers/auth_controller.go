@@ -3,7 +3,6 @@ package controllers
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/kfeuerschvenger/task-manager-api/dto"
 	"github.com/kfeuerschvenger/task-manager-api/services"
@@ -13,18 +12,21 @@ import (
 
 // Register godoc
 // @Summary New User Registration
-// @Description Creates a new user account with the provided registration details.
+// @Description Creates a new user account with the provided registration details. The password must be at least 8 characters and at most 72 bytes (a bcrypt limit).
 // @Router /auth/register [post]
 // @Tags auth
 // @Accept  json
 // @Produce  json
 // @Param   input body dto.RegisterRequest true "Registration details"
 // @Success 201 {object} map[string]string
-// @Failure 400 {object} map[string]string
+// @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
+// @Failure 409 {object} dto.ErrorResponse "Email already registered"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 func Register(w http.ResponseWriter, r *http.Request) {
 	var req dto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid input")
+		writeDecodeError(w, err, "Invalid input")
 		return
 	}
 
@@ -35,12 +37,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 
 	token, err := services.RegisterUser(req)
 	if err != nil {
-    if strings.Contains(err.Error(), "email already registered") {
-        utils.Error(w, http.StatusConflict, err.Error())
-    } else {
-        utils.Error(w, http.StatusBadRequest, err.Error())
-    }
-    return
+		writeError(w, err, "Registration failed")
+		return
 	}
 
 	utils.JSON(w, http.StatusCreated, map[string]string{"token": token})
@@ -55,12 +53,14 @@ func Register(w http.ResponseWriter, r *http.Request) {
 // @Produce  json
 // @Param   input body dto.LoginRequest true "Login details"
 // @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 401 {object} map[string]string
+// @Failure 400 {object} dto.ErrorResponse "Invalid input or validation error"
+// @Failure 401 {object} dto.ErrorResponse "Invalid credentials"
+// @Failure 413 {object} dto.ErrorResponse "Request body too large (limit 1 MiB)"
+// @Failure 500 {object} dto.ErrorResponse "Internal server error"
 func Login(w http.ResponseWriter, r *http.Request) {
 	var req dto.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "Invalid input")
+		writeDecodeError(w, err, "Invalid input")
 		return
 	}
 
@@ -71,7 +71,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	token, err := services.AuthenticateUser(req)
 	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, err.Error())
+		writeError(w, err, "Login failed")
 		return
 	}
 
