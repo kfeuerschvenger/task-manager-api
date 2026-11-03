@@ -12,7 +12,7 @@
 // Usage, from e2e/showcase/: node gif.mjs
 
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -57,6 +57,15 @@ try {
   cut = JSON.parse(await readFile(path.join(WORK, 'hero.json'), 'utf8'));
 } catch {
   fail(`No recording at ${video}. Record it first: node capture.mjs hero`);
+}
+
+// The cut points come from a file, so they are checked before ffmpeg sees them.
+const { start, end } = cut ?? {};
+if (!Number.isFinite(start) || !Number.isFinite(end)) {
+  fail(`hero.json must hold numeric "start" and "end" seconds, found start=${JSON.stringify(start)} end=${JSON.stringify(end)}. Record the hero again: node capture.mjs hero`);
+}
+if (start < 0 || end <= start) {
+  fail(`hero.json has an invalid cut (start ${start}, end ${end}): start must be 0 or more and end must be after start. Record the hero again: node capture.mjs hero`);
 }
 
 await mkdir(OUT, { recursive: true });
@@ -121,7 +130,49 @@ if (gifBytes === 0 || mp4Bytes === 0) {
   fail(`ffmpeg wrote an empty file (hero.gif ${gifBytes} bytes, hero.mp4 ${mp4Bytes} bytes), so nothing was published and ${OUT} is unchanged.`);
 }
 
-await copyFile(gif, path.join(OUT, 'hero.gif'));
-await copyFile(mp4, path.join(OUT, 'hero.mp4'));
+/**
+ * Publishes the GIF and the MP4 as a pair. Both are copied to temporary names in the destination folder first, and
+ * only then renamed over the published files. If any step fails, the temporaries are removed and a file that was
+ * already replaced is put back, so the published pair is never half updated.
+ */
+const publishPair = async pairs => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const items = pairs.map(([from, to]) => ({ from, to, temp: `${to}.tmp-${stamp}`, backup: `${to}.bak-${stamp}`, hadBackup: false, replaced: false }));
+  try {
+    for (const item of items) await copyFile(item.from, item.temp);
+    for (const item of items) {
+      try {
+        await copyFile(item.to, item.backup);
+        item.hadBackup = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    for (const item of items) {
+      await rename(item.temp, item.to);
+      item.replaced = true;
+    }
+  } catch (error) {
+    for (const item of items) {
+      if (item.replaced) {
+        if (item.hadBackup) await rename(item.backup, item.to).catch(() => {});
+        else await rm(item.to, { force: true }).catch(() => {});
+      }
+      await rm(item.temp, { force: true }).catch(() => {});
+      await rm(item.backup, { force: true }).catch(() => {});
+    }
+    throw error;
+  }
+  for (const item of items) await rm(item.backup, { force: true }).catch(() => {});
+};
+
+try {
+  await publishPair([
+    [gif, path.join(OUT, 'hero.gif')],
+    [mp4, path.join(OUT, 'hero.mp4')],
+  ]);
+} catch (error) {
+  fail(`publishing failed (${error.message}), so ${OUT} is unchanged.`);
+}
 console.log(`OK   hero.gif  ${megabytes(gifBytes)}`);
 console.log(`OK   hero.mp4  ${megabytes(mp4Bytes)}`);
