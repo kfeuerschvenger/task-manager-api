@@ -20,10 +20,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -118,6 +120,41 @@ func checkSeedAllowed(appEnv, password string) (string, error) {
 	return password, nil
 }
 
+// seedAllowRemoteVariable names the variable that lets the seed run against a database that is not local.
+const seedAllowRemoteVariable = "DEMO_SEED_ALLOW_REMOTE"
+
+// seedLocalHosts lists the hosts the seed treats as local: loopback, the compose service name and Docker Desktop's
+// alias for the machine.
+var seedLocalHosts = []string{"localhost", "127.0.0.1", "::1", "db", "host.docker.internal"}
+
+// isLocalSeedHost reports whether the host (compared trimmed and case-insensitive) is one of seedLocalHosts.
+func isLocalSeedHost(host string) bool {
+	return slices.Contains(seedLocalHosts, strings.ToLower(strings.TrimSpace(host)))
+}
+
+// seedTarget returns the host and database name the seed would connect to: the ones in databaseURL when it is
+// set, otherwise dbHost and dbName. It never returns or reports a credential, and the error of an unparsable URL
+// is replaced by a fixed message because the parser would echo the URL, password included.
+func seedTarget(databaseURL, dbHost, dbName string) (string, string, error) {
+	if strings.TrimSpace(databaseURL) == "" {
+		return strings.TrimSpace(dbHost), strings.TrimSpace(dbName), nil
+	}
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", "", errors.New("seed refused: DATABASE_URL cannot be parsed, so its host cannot be checked")
+	}
+	return parsed.Hostname(), strings.TrimPrefix(parsed.Path, "/"), nil
+}
+
+// checkSeedTarget returns an error when the host is not local and allowRemote is not "1". It touches no database.
+func checkSeedTarget(host, allowRemote string) error {
+	if isLocalSeedHost(host) || strings.TrimSpace(allowRemote) == "1" {
+		return nil
+	}
+	return fmt.Errorf("seed refused: the database host %q is not local (%s). Set %s=1 to seed it anyway",
+		host, strings.Join(seedLocalHosts, ", "), seedAllowRemoteVariable)
+}
+
 // runSeed applies migrations, connects and loads the demo data. It exits non-zero when a guard refuses or a
 // step fails.
 func runSeed() {
@@ -127,6 +164,15 @@ func runSeed() {
 	}
 	reference, err := services.ParseDemoReference(os.Getenv(services.DemoReferenceVariable))
 	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	host, name, err := seedTarget(os.Getenv("DATABASE_URL"), os.Getenv("DB_HOST"), os.Getenv("DB_NAME"))
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	log.Printf("Seed target: host %q, database %q", host, name)
+	if err := checkSeedTarget(host, os.Getenv(seedAllowRemoteVariable)); err != nil {
 		log.Fatalf("%v", err)
 	}
 
