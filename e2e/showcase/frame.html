@@ -133,7 +133,7 @@
       <div class="window">
         <div class="bar">
           <div class="dots"><i></i><i></i><i></i></div>
-          <div class="address"><span id="address">localhost:8080/documentation/</span></div>
+          <div class="address"><span id="address"></span></div>
         </div>
         <img id="shot" alt="" />
       </div>
@@ -142,11 +142,12 @@
       /**
        * Puts a screenshot in the window.
        *
-       * @param {{ src: string, width: number, address?: string }} shot The image as a data URL, the width in CSS pixels it was taken at, and the text of the address bar.
+       * @param {{ src: string, width: number, address: string }} shot The image as a data URL, the width in CSS pixels it was taken at, and the text of the address bar.
        */
       window.placeShot = async ({ src, width, address }) => {
         document.documentElement.style.setProperty('--shot-width', `${width}px`);
-        document.getElementById('address').textContent = address || 'localhost:8080/documentation/';
+        if (!address) throw new Error('placeShot needs the address to show');
+        document.getElementById('address').textContent = address;
 
         const image = document.getElementById('shot');
         image.src = src;

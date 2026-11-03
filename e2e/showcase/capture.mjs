@@ -8,19 +8,25 @@
 // Nothing here confirms a dialog that writes to the database. Two shots create
 // a task on purpose (create-task and the hero), and both delete what they
 // created through the API when they finish, so the demo data ends as it began.
-// The forbidden shot is rejected by the API and writes nothing.
+// The run purges both titles before it starts and again on SIGINT or SIGTERM,
+// so an interrupted run leaves nothing behind. The forbidden shot is rejected
+// by the API and writes nothing, and it re-reads its target afterwards and
+// restores it, loudly, if it changed.
+//
+// A cleanup failure never hides the error of the shot and is reported on its
+// own line, and any failure, capture or cleanup, makes the exit code non-zero.
 //
 // A bearer token never reaches an image. The token is pasted into a masked
 // field, every `pre` block that would print it is rewritten to a truncated
-// form before it is painted, and each shot fails when the visible text of the
-// page still holds a full token.
+// form before it is painted, and the page is checked for a full token after
+// every step that renders one.
 //
 // Usage, from e2e/showcase/ (see README.md for the variables):
 //   node capture.mjs                  every still
 //   SLUGS=overview,forbidden node capture.mjs
 //   node capture.mjs hero             the video, for gif.mjs (a slug may also be an argument)
 
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
@@ -34,6 +40,9 @@ const ASSIGNEE_EMAIL = process.env.DEMO_ASSIGNEE_EMAIL ?? '';
 const PASSWORD = process.env.DEMO_PASSWORD ?? '';
 
 const DOCS = `${BASE}/documentation/index.html`;
+/** The address the browser frame shows, derived from BASE_URL: host, port and the documentation path. */
+const ADDRESS = `${new URL(BASE).host}/documentation/`;
+const FRAME_FILE = path.join(here, 'frame.html');
 
 /** Framed shots, which are committed. */
 const OUT = process.env.SHOWCASE_OUT ? path.resolve(process.env.SHOWCASE_OUT) : path.join(REPO, 'docs', 'assets', 'screens');
@@ -80,20 +89,125 @@ const api = async (route, { method = 'GET', token, body } = {}) => {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
-  return { status: response.status, json: text ? JSON.parse(text) : null };
+  // A body that is not JSON (a proxy page, an empty error) leaves json null, and the caller checks the status.
+  let json = null;
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+  }
+  return { status: response.status, json };
 };
 
 const login = async email => {
   const { status, json } = await api('/auth/login', { method: 'POST', body: { email, password: PASSWORD } });
   if (status !== 200) throw new Error(`login as ${email} answered ${status}: is the demo seeded with this password?`);
+  if (typeof json?.token !== 'string' || json.token === '') throw new Error(`login as ${email} answered 200 without a token`);
   return json.token;
 };
 
-/** Deletes every task of the creator with this title, which is how a flow undoes its own write. */
+/** The tasks the token can see. Fails on any status but 200 and on a body that is not a list. */
+const listTasks = async token => {
+  const { status, json } = await api('/tasks', { token });
+  if (status !== 200) throw new Error(`GET /tasks answered ${status}`);
+  if (!Array.isArray(json)) throw new Error('GET /tasks did not answer a list');
+  return json;
+};
+
+/**
+ * Deletes every task of the token's user with this title, which is how a flow undoes its own write. Every
+ * DELETE must answer 2xx, and the list is read again afterwards: a title that is still there fails loudly.
+ */
 const deleteTasksTitled = async (token, title) => {
-  const { json } = await api('/tasks', { token });
-  for (const task of json ?? []) {
-    if (task.title === title) await api(`/tasks/${task.id}`, { method: 'DELETE', token });
+  const problems = [];
+  for (const task of (await listTasks(token)).filter(item => item.title === title)) {
+    const { status } = await api(`/tasks/${task.id}`, { method: 'DELETE', token });
+    if (status < 200 || status >= 300) problems.push(`DELETE /tasks/${task.id} answered ${status}`);
+  }
+
+  const left = (await listTasks(token)).filter(item => item.title === title);
+  if (left.length > 0) problems.push(`${left.length} task(s) titled "${title}" remain`);
+  if (problems.length > 0) throw new Error(`cleanup of "${title}" failed: ${problems.join('; ')}`);
+};
+
+/** Runs a step and returns its error instead of throwing it, so a cleanup can never mask the error before it. */
+const attempt = async step => {
+  try {
+    await step();
+    return null;
+  } catch (error) {
+    return error;
+  }
+};
+
+const firstLine = error => String(error?.message ?? error).split('\n')[0];
+
+/** Deletes the tasks both flows create. */
+const purgeCreatedTasks = async () => {
+  const token = await login(CREATOR_EMAIL);
+  for (const { title } of [STILL_TASK, HERO_TASK]) await deleteTasksTitled(token, title);
+};
+
+/** The fields of a task the forbidden shot records and compares. Title is not editable, so it is only compared. */
+const WATCHED_FIELDS = ['title', 'description', 'due_date', 'priority', 'status'];
+
+/**
+ * Re-reads the task a shot recorded and, when a watched field changed, puts it back and fails loudly. The
+ * creator owns the demo tasks, so the creator restores them.
+ */
+const restoreTask = async original => {
+  if (!original) return;
+  const token = await login(CREATOR_EMAIL);
+  const read = async () => {
+    const { status, json } = await api(`/tasks/${original.id}`, { token });
+    if (status !== 200 || !json) throw new Error(`could not re-read task ${original.id}: status ${status}`);
+    return WATCHED_FIELDS.filter(key => json[key] !== original.fields[key]);
+  };
+
+  const changed = await read();
+  if (changed.length === 0) return;
+
+  const { title: _title, ...editable } = original.fields;
+  const { status } = await api(`/tasks/${original.id}`, { method: 'PUT', token, body: editable });
+  const stillChanged = status === 200 ? await read() : changed;
+  const outcome = stillChanged.length === 0 ? 'restored' : `NOT restored (${stillChanged.join(', ')} still differ, PUT answered ${status})`;
+  throw new Error(`the forbidden shot changed ${changed.join(', ')} of task ${original.id}: ${outcome}`);
+};
+
+// -- what an interrupted run must still undo ------------------------------------------------------
+
+/** Browsers that are open, and the forbidden-shot states that still have a task to check. */
+const openBrowsers = new Set();
+const activeRestores = new Set();
+
+/** Every cleanup a run owes, as a list of errors. Used on SIGINT and SIGTERM. */
+const runAllCleanups = async () => {
+  const errors = [];
+  for (const browser of openBrowsers) {
+    const error = await attempt(() => browser.close());
+    if (error) errors.push(error);
+  }
+  const purge = await attempt(purgeCreatedTasks);
+  if (purge) errors.push(purge);
+  for (const state of activeRestores) {
+    const error = await attempt(() => restoreTask(state.original));
+    if (error) errors.push(error);
+  }
+  return errors;
+};
+
+let interrupted = false;
+const installSignalHandlers = () => {
+  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+    process.on(signal, async () => {
+      if (interrupted) return;
+      interrupted = true;
+      console.error(`\n${signal}: undoing what this run wrote before exiting`);
+      for (const error of await runAllCleanups()) console.error(`FAIL cleanup  ${firstLine(error)}`);
+      process.exit(code);
+    });
   }
 };
 
@@ -229,10 +343,30 @@ const waitForCalm = page =>
     { timeout: 15_000 }
   );
 
-/** Fails the shot when a token is on screen or something is still loading. */
+/**
+ * Fails the shot when a token is on screen or something is still loading. Three places are checked: the visible
+ * text, the contents of every `pre` block, and the value of every `input` and `textarea`.
+ *
+ * The Authorize field legitimately holds `Bearer <token>` as its raw value while it is rendered as dots through
+ * `-webkit-text-security: disc`. What reaches the image is the rendering, so a masked field is checked by its
+ * rendering: it passes only when the computed style is `disc` (or the field is a password input), and the raw
+ * value is not compared. Any other field has its value compared with the token pattern.
+ */
 const assertClean = async page => {
-  const visible = await page.evaluate(() => document.body.innerText);
-  if (TOKEN_PATTERN.test(visible)) throw new Error('a full bearer token is visible on the page');
+  const leaks = await page.evaluate(pattern => {
+    const token = new RegExp(pattern);
+    const found = [];
+    if (token.test(document.body.innerText)) found.push('the visible text');
+    for (const block of document.querySelectorAll('pre')) {
+      if (token.test(block.textContent)) found.push('a pre block');
+    }
+    for (const field of document.querySelectorAll('input, textarea')) {
+      const masked = field.type === 'password' || getComputedStyle(field).webkitTextSecurity === 'disc';
+      if (!masked && token.test(field.value)) found.push(`the value of a visible ${field.tagName.toLowerCase()}`);
+    }
+    return found;
+  }, TOKEN_PATTERN.source);
+  if (leaks.length > 0) throw new Error(`a full bearer token is visible in ${[...new Set(leaks)].join(', ')}`);
 
   const busy = await page.locator('.loading-container, .btn.execute.loading').count();
   if (busy > 0) throw new Error(`a loading indicator is still on screen (${busy})`);
@@ -259,7 +393,8 @@ const expectText = async (locator, text) => {
 
 /**
  * A shot receives a fresh page on the Swagger UI and, in `run`, brings it to the state to photograph. `cleanup`
- * runs in every case, success or failure, and undoes whatever the shot wrote.
+ * runs in every case, success or failure, and undoes whatever the shot wrote. `run` and `cleanup` share a
+ * `state` object, which is how a shot hands what it recorded to its cleanup.
  */
 const SHOTS = [
   {
@@ -314,12 +449,14 @@ const SHOTS = [
   },
   {
     slug: 'forbidden',
-    run: async page => {
+    run: async (page, state) => {
       const assigneeToken = await login(ASSIGNEE_EMAIL);
       // The API does not say who created a task, so pick the one the assignee holds that the creator owns.
-      const { json } = await api('/tasks', { token: assigneeToken });
-      const target = (json ?? []).find(task => task.title === 'Promote a task from pending to in_progress');
+      const target = (await listTasks(assigneeToken)).find(task => task.title === 'Promote a task from pending to in_progress');
       if (!target) throw new Error('the assignee has no seeded task to try to edit: is the demo seeded?');
+      // Recorded before the request, so the cleanup can tell whether the rejected edit changed anything.
+      state.original = { id: target.id, fields: Object.fromEntries(WATCHED_FIELDS.map(key => [key, target[key]])) };
+      activeRestores.add(state);
 
       await openDocs(page);
       await authorize(page, assigneeToken);
@@ -331,6 +468,13 @@ const SHOTS = [
       await expectText(responseBody(block), 'Unauthorized to update task');
       await frameBlock(page, block);
       await settle(page);
+    },
+    cleanup: async state => {
+      try {
+        await restoreTask(state.original);
+      } finally {
+        activeRestores.delete(state);
+      }
     },
   },
 ];
@@ -358,28 +502,44 @@ const frameShot = async (framePage, raw, width) => {
   await framePage.evaluate(shot => window.placeShot(shot), {
     src: `data:image/png;base64,${raw.toString('base64')}`,
     width,
-    address: 'localhost:8080/documentation/',
+    address: ADDRESS,
   });
   return framePage.locator('#stage').screenshot({ type: 'png' });
 };
 
 const kilobytes = async file => `${Math.round((await stat(file)).size / 1024)} KB`;
 
+/**
+ * Takes one still. A capture failure is thrown, with the cleanup error (if the cleanup failed too) attached as
+ * `cleanupError`. When the still was written and only the cleanup failed, the cleanup error is returned and not
+ * thrown, so the caller can report the shot as captured and the cleanup as failed.
+ */
 const takeStill = async (shot, { browser, framePage }) => {
-  const context = await openContext(browser);
-  await prepare(context);
-  const page = await context.newPage();
+  const state = {};
+  let captureError = null;
+  let context;
   try {
-    await shot.run(page);
+    context = await openContext(browser);
+    await prepare(context);
+    const page = await context.newPage();
+    await shot.run(page, state);
     const raw = await page.screenshot({ type: 'png' });
     const framed = await frameShot(framePage, raw, VIEWPORT.width);
 
     await writeFile(path.join(WORK, `${shot.slug}.raw.png`), raw);
     await writeFile(path.join(OUT, `${shot.slug}.png`), framed);
-  } finally {
-    await context.close().catch(() => {});
-    await shot.cleanup?.();
+  } catch (error) {
+    captureError = error;
   }
+
+  await context?.close().catch(() => {});
+  const cleanupError = await attempt(() => shot.cleanup?.(state));
+
+  if (captureError) {
+    if (cleanupError) captureError.cleanupError = cleanupError;
+    throw captureError;
+  }
+  return { cleanupError };
 };
 
 // -- the hero --------------------------------------------------------------------------------------
@@ -423,11 +583,37 @@ const scrollTo = async (page, locator, offset = 90) => {
 
 const MASKED_PASSWORD = '************';
 
+/**
+ * Records the hero. The browser is closed in every case, and the task the flow creates is deleted afterwards.
+ * Errors follow the same contract as takeStill: a failed recording is thrown with `cleanupError` attached when
+ * the cleanup failed too, and a cleanup failure after a good recording is returned.
+ */
 const recordHero = async () => {
   const dir = path.join(WORK, 'video');
   await rm(dir, { recursive: true, force: true });
 
+  let captureError = null;
   const browser = await chromium.launch({ channel: 'chromium' });
+  openBrowsers.add(browser);
+  try {
+    await recordHeroFlow(browser, dir);
+  } catch (error) {
+    captureError = error;
+  }
+
+  await browser.close().catch(() => {});
+  openBrowsers.delete(browser);
+  // A fresh login keeps this working when the flow failed before it had a token.
+  const cleanupError = await attempt(async () => deleteTasksTitled(await login(CREATOR_EMAIL), HERO_TASK.title));
+
+  if (captureError) {
+    if (cleanupError) captureError.cleanupError = cleanupError;
+    throw captureError;
+  }
+  return { cleanupError };
+};
+
+const recordHeroFlow = async (browser, dir) => {
   const context = await openContext(browser, { deviceScaleFactor: 1, recordVideo: { dir, size: VIEWPORT } });
   await prepare(context);
   await context.addInitScript(CURSOR_SCRIPT);
@@ -438,8 +624,10 @@ const recordHero = async () => {
     return route.continue({ postData: JSON.stringify({ ...body, password: PASSWORD }) });
   });
 
-  const page = await context.newPage();
+  // The video clock starts when the page is created, so the timestamp is taken just before it. The cut points
+  // written to hero.json are measured from here and match the video.
   const recordingStarted = Date.now();
+  const page = await context.newPage();
   let token = '';
 
   try {
@@ -467,7 +655,9 @@ const recordHero = async () => {
     const loginResponse = await answered;
     token = (await loginResponse.json()).token;
     expectStatus(await waitForStatus(signIn), 200);
+    await assertClean(page);
     await beat(page, 1800);
+    await assertClean(page);
 
     // Authorize with Bearer and the token. The field shows dots.
     await scrollTo(page, page.locator('.scheme-container'), 0);
@@ -475,12 +665,15 @@ const recordHero = async () => {
     await beat(page, 500);
     const modal = page.locator('.auth-container');
     await modal.locator('input[type="text"]').fill(`Bearer ${token}`);
+    await assertClean(page);
     await beat(page, 900);
     await press(page, modal.locator('button.authorize'));
     await modal.locator('button', { hasText: 'Logout' }).waitFor();
+    await assertClean(page);
     await beat(page, 900);
     await press(page, page.locator('.modal-ux button.btn-done'));
     await beat(page, 600);
+    await assertClean(page);
 
     // Put the login away, so the next calls have the page to themselves.
     await press(page, page.locator('#operations-tag-auth'));
@@ -499,8 +692,10 @@ const recordHero = async () => {
     await scrollTo(page, create.locator('.opblock-summary'), 24);
     await press(page, create.locator('button.execute'));
     expectStatus(await waitForStatus(create), 201);
+    await assertClean(page);
     await scrollTo(page, create.locator('.responses-wrapper'), 160);
     await beat(page, 2200);
+    await assertClean(page);
 
     // Close it and read the list, filtered to high priority.
     await scrollTo(page, create.locator('.opblock-summary'), 24);
@@ -517,6 +712,7 @@ const recordHero = async () => {
     await beat(page, 700);
     await press(page, list.locator('button.execute'));
     expectStatus(await waitForStatus(list), 200);
+    await assertClean(page);
 
     const body = responseBody(list);
     await expectText(body, KNOWN_HIGH_TITLE);
@@ -535,9 +731,6 @@ const recordHero = async () => {
     await writeFile(path.join(WORK, 'hero.json'), JSON.stringify({ start: Number(startAt.toFixed(2)), end: Number(endAt.toFixed(2)) }));
   } finally {
     await context.close().catch(() => {});
-    await browser.close().catch(() => {});
-    // Undo the write. A fresh login keeps this working when the flow failed before it had a token.
-    await deleteTasksTitled(await login(CREATOR_EMAIL), HERO_TASK.title);
   }
 };
 
@@ -565,44 +758,64 @@ const main = async () => {
 
   await mkdir(WORK, { recursive: true });
   await mkdir(OUT, { recursive: true });
-  await readFile(path.join(here, 'frame.html'));
+  await stat(FRAME_FILE).catch(() => {
+    throw new Error(`the browser frame ${FRAME_FILE} is missing: restore frame.html next to capture.mjs`);
+  });
+
+  // An earlier run that was killed may have left the tasks the flows create. Remove them before anything else.
+  installSignalHandlers();
+  await purgeCreatedTasks();
 
   const browser = await chromium.launch();
+  openBrowsers.add(browser);
   const failures = [];
+  const cleanupFailures = [];
   const report = (slug, ok, detail) => {
     log(`${ok ? 'OK  ' : 'FAIL'} ${slug}${detail ? `  ${detail}` : ''}`);
     if (!ok) failures.push(slug);
+  };
+  const reportCleanup = (slug, error) => {
+    log(`FAIL cleanup ${slug}  ${firstLine(error)}`);
+    cleanupFailures.push(slug);
+    if (process.env.SHOWCASE_DEBUG) console.error(error);
   };
 
   try {
     const frameContext = await browser.newContext({ viewport: { width: 2000, height: 1500 }, deviceScaleFactor: FRAME_SCALE });
     const framePage = await frameContext.newPage();
-    await framePage.goto(pathToFileURL(path.join(here, 'frame.html')).href);
+    await framePage.goto(pathToFileURL(FRAME_FILE).href);
 
     for (const shot of stills) {
       try {
-        await takeStill(shot, { browser, framePage });
+        const { cleanupError } = await takeStill(shot, { browser, framePage });
         report(shot.slug, true, await kilobytes(path.join(OUT, `${shot.slug}.png`)));
+        if (cleanupError) reportCleanup(shot.slug, cleanupError);
       } catch (error) {
-        report(shot.slug, false, error.message.split('\n')[0]);
+        report(shot.slug, false, firstLine(error));
         if (process.env.SHOWCASE_DEBUG) console.error(error);
+        if (error.cleanupError) reportCleanup(shot.slug, error.cleanupError);
       }
     }
 
     if (slugs.includes('hero')) {
       try {
-        await recordHero();
+        const { cleanupError } = await recordHero();
         report('hero', true, 'recorded, run gif.mjs to convert it');
+        if (cleanupError) reportCleanup('hero', cleanupError);
       } catch (error) {
-        report('hero', false, error.message.split('\n')[0]);
+        report('hero', false, firstLine(error));
+        if (process.env.SHOWCASE_DEBUG) console.error(error);
+        if (error.cleanupError) reportCleanup('hero', error.cleanupError);
       }
     }
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
+    openBrowsers.delete(browser);
   }
 
-  if (failures.length > 0) {
-    log(`\n${failures.length} failed: ${failures.join(', ')}`);
+  if (failures.length > 0 || cleanupFailures.length > 0) {
+    if (failures.length > 0) log(`\n${failures.length} capture failure(s): ${failures.join(', ')}`);
+    if (cleanupFailures.length > 0) log(`${cleanupFailures.length} cleanup failure(s): ${cleanupFailures.join(', ')}. The demo data may need a reseed.`);
     process.exit(1);
   }
   log('\nAll shots captured.');
