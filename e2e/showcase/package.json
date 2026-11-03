@@ -9,6 +9,7 @@
     "capture": "node capture.mjs",
     "capture:hero": "node capture.mjs hero",
     "gif": "node gif.mjs",
+    "test": "node --test redact.test.mjs",
     "showcase": "node capture.mjs && node capture.mjs hero && node gif.mjs"
   },
   "devDependencies": {
