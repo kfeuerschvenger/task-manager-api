@@ -1,164 +1,154 @@
-# Collaborative Task Management API
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/banner-dark.svg">
+    <img src="docs/assets/brand/banner-light.svg" alt="Task Manager API: Tasks in, status out. The status lifecycle runs pending, in_progress, complete." width="100%">
+  </picture>
+</p>
 
-This project is a RESTful API designed to manage tasks in a collaborative environment. Built with Go and PostgreSQL, it follows clean architecture principles and is fully containerized with Docker.
+<p align="center">
+  <a href="https://github.com/kfeuerschvenger/task-manager-api/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kfeuerschvenger/task-manager-api/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-00ADD8?style=flat-square" alt="MIT licence"></a>
+  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.25">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+</p>
 
-## Technologies Used
+<p align="center"><strong>English</strong> · <a href="README_es.md">Español</a></p>
 
-| Backend                                                                                                                                                                                                                                                                                                      | Database                                                                                                                                                               | DevOps                                                                                                                                                     | Tools                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img width="50" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/go.png" alt="Go" title="Go"/> <img width="50" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/swagger.png" alt="Swagger" title="Swagger"/> | <img width="50" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/postgresql.png" alt="PostgreSQL" title="PostgreSQL"/> | <img width="50" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/docker.png" alt="Docker" title="Docker"/> | <img width="50" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/postman.png" alt="Postman" title="Postman"/> |
+<p align="center">
+  <img src="docs/assets/screens/hero.gif" alt="The Swagger UI of the API: signing in, authorizing with the token, creating a task and listing the high priority tasks" width="100%">
+</p>
 
-## Features
+**Task Manager API is a Go REST API for tasks that have an owner, an assignee and a deadline that, with luck, someone meets.**
 
-- User registration and login with JWT authentication.
-- Task management with creation, update, and filtering.
-- Tasks can be created for oneself or assigned to other users.
-- Protected routes requiring authentication.
-- PostgreSQL database with migrations.
-- Dockerized environment for easy setup.
+Register, sign in, and create tasks that move through `pending`, `in_progress` and `complete`. Give a task to a teammate and they can see it, while you keep the keys: only the creator edits or deletes.
 
-## Project Structure
+It is a small, layered Go service on PostgreSQL, with JWT authentication, a Swagger UI generated from the code and a Docker setup that starts in three steps. The configuration is strict on purpose: a weak secret stops the server before it can make promises it cannot keep.
 
-```
-task-manager-api
-├── cmd
-│   └── main.go
-├── controllers
-│   ├── auth_controller.go
-│   ├── healthcheck_controller.go
-│   └── task_controller.go
-├── database
-│   ├── db.go
-│   ├── migrations
-│   │   ├── 000001_enable_uuid_ossp.down.sql
-│   │   ├── 000001_enable_uuid_ossp.up.sql
-│   │   ├── 000002_create_users_table.down.sql
-│   │   ├── 000002_create_users_table.up.sql
-│   │   ├── 000003_create_tasks_table.down.sql
-│   │   └── 000003_create_tasks_table.up.sql
-│   └── migrations.go
-├── docs
-│   ├── docs.go
-│   ├── swagger.json
-│   └── swagger.yaml
-├── dto
-│   ├── auth.go
-│   ├── error.go
-│   └── task.go
-├── errors
-│   ├── auth.go
-│   ├── errors.go
-│   └── validation.go
-├── middleware
-│   └── auth.go
-├── models
-│   ├── task.go
-│   └── user.go
-├── routes
-│   └── routes.go
-├── services
-│   ├── auth_service.go
-│   └── task_service.go
-├── tests
-│   ├── auth_test.go
-│   ├── task_test.go
-│   └── utils_test.go
-├── utils
-│   ├── bcrypt.go
-│   ├── email.go
-│   ├── jwt.go
-│   └── response.go
-├── validators
-│   └── auth.go
-├── .env
-├── .env.example
-├── .gitignore
-├── docker-compose-test.yml
-├── docker-compose.yml
-├── Dockerfile
-├── go.mod
-├── go.sum
-└── README.md
-```
+## Take the tour
 
-## Setup Instructions
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screens/overview.png" alt="The Swagger UI with the auth, healthcheck and tasks groups open">
+      <p><strong>Every endpoint, one page.</strong> The Swagger UI is generated from the code, so what you read is what the server does.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screens/create-task.png" alt="POST /tasks executed from the Swagger UI and answering 201 with the new task">
+      <p><strong>Tasks in, 201 out.</strong> Title, description and a due date are all it takes. Priority and status fall back to sensible defaults.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screens/filter-high.png" alt="GET /tasks with the priority filter set to high, answering 200 with the high priority tasks">
+      <p><strong>Filter what is urgent.</strong> Ask for a status or a priority and get the tasks sorted by due date, soonest first.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/screens/forbidden.png" alt="PUT /tasks/{id} from the assignee answering 403 with the message Unauthorized to update task">
+      <p><strong>Looking is not editing.</strong> An assignee sees the task, but changing it is the creator's call, and the API says so with a 403.</p>
+    </td>
+  </tr>
+</table>
 
-1. Copy the example environment variables file:
+## Endpoints at a glance
 
-   ```sh
-   cp .env.example .env
-   ```
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/ping` | None | Health check |
+| POST | `/auth/register` | None | Create a user and get a token |
+| POST | `/auth/login` | None | Sign in and get a token |
+| GET | `/documentation/` | None | Swagger UI |
+| GET | `/tasks` | Bearer | List your tasks, with `status` and `priority` filters |
+| POST | `/tasks` | Bearer | Create a task |
+| GET | `/tasks/{id}` | Bearer | Get one task |
+| PUT | `/tasks/{id}` | Bearer | Update a task, creator only |
+| DELETE | `/tasks/{id}` | Bearer | Delete a task, creator only |
 
-   Then edit `.env`: set `DB_PASSWORD` and set `JWT_SECRET` to a random value of at least 32 bytes (for example `openssl rand -base64 32`). The server refuses to start otherwise.
+Request fields, status codes and error bodies are in [docs/API.md](docs/API.md).
 
-2. Build and run all services using Docker Compose:
+## What makes it special
 
-   ```sh
-   docker-compose up -d --build
-   ```
+- **The creator holds the keys.** Creator and assignee both see a task. Only the creator can update, reassign or delete it, and a user who is neither of them cannot even read it: they get a 404.
+- **Assign it, keep it.** A creator can hand a task to a teammate and still own it, and still sees it in their list.
+- **Deadlines are data.** Every task has a due date and the list is sorted by it. Past dates are accepted: the API records your optimism without judging it.
+- **Strict by default.** `JWT_SECRET` must be at least 32 bytes, request bodies are capped at 1 MiB, passwords are hashed with bcrypt, and an unknown email gets the same answer as a wrong password.
+- **Docs that cannot drift.** The Swagger spec is generated from the code, and CI fails when the committed spec is stale.
 
-3. The API will be available at `http://localhost:8080` (or the configured port).
+A task can move between statuses freely, and only its creator can move it: there is no gatekeeping between the three.
 
-4. Database migrations will run automatically on startup.
-
-## Runing Tests
-
-To run the unit and integration tests, use the following command:
-
-```sh
-docker compose -f docker-compose-test.yml up --abort-on-container-exit --exit-code-from test
-docker compose -f docker-compose-test.yml down -v
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Segoe UI, Helvetica, Arial, sans-serif", "primaryColor": "#D6F3FA", "primaryBorderColor": "#00ADD8", "primaryTextColor": "#0F172A", "lineColor": "#0092B8", "textColor": "#0F172A", "edgeLabelBackground": "#ffffff"}}}%%
+stateDiagram-v2
+  direction LR
+  [*] --> pending: created, unless you say otherwise
+  pending --> in_progress
+  in_progress --> complete
+  complete --> in_progress
+  in_progress --> pending
+  pending --> complete
+  complete --> pending
+  classDef pendingStyle fill:#E2E8F0,stroke:#94A3B8,color:#0F172A
+  classDef progressStyle fill:#FEF3C7,stroke:#F59E0B,color:#0F172A
+  classDef completeStyle fill:#DCFCE7,stroke:#22C55E,color:#0F172A
+  class pending pendingStyle
+  class in_progress progressStyle
+  class complete completeStyle
 ```
 
-The test stack is self-contained: it needs no `.env` file and publishes no ports.
+## Under the hood
 
-## API Endpoints
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/architecture-dark.svg">
+  <img src="docs/assets/diagrams/architecture.svg" alt="Callers reach one Go binary. A request passes the body limit, the mux router, the JWT middleware on the tasks routes, the controllers and the services, which query PostgreSQL through GORM. Swagger UI is served by the same binary and golang-migrate applies the schema at startup" width="100%">
+</picture>
 
-### Authentication
+One Go binary does it all. A request crosses the body limit and the `gorilla/mux` router, then the JWT middleware on the `/tasks` routes, and reaches a controller that decodes it and maps typed errors to status codes. The services hold the rules, including who may touch what, and talk to PostgreSQL through GORM. Migrations run with `golang-migrate` every time the server starts, and the Swagger UI is served by the same process.
 
-- **Register:** `POST /auth/register`
-- **Login:** `POST /auth/login`
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=go" alt="Go" title="Go" width="48">&nbsp;
+  <img src="https://skillicons.dev/icons?i=postgres" alt="PostgreSQL" title="PostgreSQL" width="48">&nbsp;
+  <img src="https://skillicons.dev/icons?i=docker" alt="Docker" title="Docker" width="48">
+</p>
 
-### Task Management (requires authentication)
+## Quick start
 
-- **Create Task:** `POST /tasks`
-- **List Tasks:** `GET /tasks?status=&priority=`
-- **Get one Task:** `GET /tasks/:id`
-- **Update Task:** `PUT /tasks/:id`
-- **Delete Task:** `DELETE /tasks/:id`
+All you need is Docker, running.
 
-### Documentation
-
-- **Navigate to:** `http://localhost:8080/documentation/index.html`
-
-### Health Check
-
-- **Ping:** `GET /ping`
-
-## Environment Variables
-
-See `.env.example` for the list of environment variables. `JWT_SECRET` must be at least 32 bytes. `DB_SSLMODE` sets the PostgreSQL sslmode and defaults to `disable`; it must be one of `disable`, `require`, `verify-ca`, or `verify-full`, otherwise the server refuses to start (`allow` and `prefer` are not supported because the migration driver rejects them). `DB_SSLROOTCERT` optionally sets the path of the root certificate used by `verify-ca` and `verify-full`. `DATABASE_URL` optionally overrides the connection string used by the migrations only: it is used verbatim, so `DB_SSLMODE` and `DB_SSLROOTCERT` do not apply to it (only an `sslmode` query parameter in it is checked against the same allowlist at startup), while the application itself keeps connecting with the `DB_*` variables. Postgres is published on `127.0.0.1:5432` only.
-
-### TLS to the database
-
-The image ships the system CA bundle (`ca-certificates`), so `verify-ca` and `verify-full` work against servers signed by a public CA with no extra setup. For a private CA, mount its root certificate into the container and point `DB_SSLROOTCERT` at it, for example with this `docker-compose.yml` override on the `api` service:
-
-```yaml
-    volumes:
-      - ./certs/root.crt:/certs/root.crt:ro
+```bash
+cp .env.example .env
+# edit .env: set JWT_SECRET to at least 32 bytes (openssl rand -base64 32)
+docker compose up --build
 ```
 
-and in `.env`:
+Then open http://localhost:8080/documentation/ and try it out.
 
-```
-DB_SSLMODE=verify-full
-DB_SSLROOTCERT=/certs/root.crt
-```
+> [!TIP]
+> Replace `JWT_SECRET` in `.env` with at least 32 bytes, for example the output of `openssl rand -base64 32`. The placeholder is rejected on purpose, so the server will not start with it. Every variable, running without Docker and the demo seed are in [ENVIRONMENT.md](docs/ENVIRONMENT.md).
 
-The container healthcheck calls `GET /ping` on `APP_PORT` (default `8080`), and both compose services use `restart: unless-stopped`.
+## Dive deeper
 
-## Notes
+The README is the elevator pitch. The deep docs are the building plans.
 
-- Only the task creator can update a task.
-- Passwords must be at least 8 characters (counted as Unicode characters) and at most 72 bytes (a bcrypt limit; multibyte characters use more than one byte). They are securely stored using bcrypt.
-- JWT tokens are required for all protected routes.
+| Document | The hook |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | The layers, the startup sequence, how an error becomes a status code, the data model and the JWT design |
+| [Environment](docs/ENVIRONMENT.md) | Every variable, Docker and local setup, the demo seed and what to check when the server refuses to start |
+| [Testing](docs/TESTING.md) | Which packages need a database, two ways to run the suite and the pipeline that takes these screenshots |
+| [CI](docs/CI.md) | The three jobs, branch protection and how Dependabot updates flow |
+| [API](docs/API.md) | Every endpoint with its fields, status codes and error bodies, plus the Swagger workflow |
+| [Roadmap](docs/ROADMAP.md) | What is still open, grouped by what it touches |
+
+---
+
+<p align="center">
+  <strong>Made in Patagonia · 50°20′S</strong><br>
+  Built with care by <strong>Kevin Feuerschvenger</strong> · Software Engineer (built before the due date, mostly)
+</p>
+
+<p align="center">
+  <a href="https://github.com/kfeuerschvenger"><img src="https://img.shields.io/badge/GitHub-kfeuerschvenger-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="https://www.linkedin.com/in/kevin-feuerschvenger/"><img src="https://img.shields.io/badge/LinkedIn-kevin--feuerschvenger-0A66C2?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yMC40NSAyMC40NWgtMy41NnYtNS41N2MwLTEuMzMtLjAyLTMuMDQtMS44NS0zLjA0LTEuODUgMC0yLjE0IDEuNDUtMi4xNCAyLjk0djUuNjdIOS4zNVY5aDMuNDF2MS41NmguMDVjLjQ4LS45IDEuNjQtMS44NSAzLjM3LTEuODUgMy42IDAgNC4yNyAyLjM3IDQuMjcgNS40NnY2LjI4ek01LjM0IDcuNDNhMi4wNiAyLjA2IDAgMSAxIDAtNC4xMyAyLjA2IDIuMDYgMCAwIDEgMCA0LjEzek03LjEyIDIwLjQ1SDMuNTZWOWgzLjU2djExLjQ1eiIvPjwvc3ZnPg%3D%3D" alt="LinkedIn"></a>
+  <a href="https://feuerschvenger.com/"><img src="https://img.shields.io/badge/Portfolio-feuerschvenger.com-00ADD8?style=flat-square&logo=googlechrome&logoColor=white" alt="Portfolio"></a>
+</p>
+
+<p align="center"><sub>Released under the <a href="LICENSE">MIT licence</a>.</sub></p>
